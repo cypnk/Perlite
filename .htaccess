@@ -1,0 +1,13 @@
+Options +FollowSymLinks
+RewriteEngine on
+
+# All requests to /storage folder
+RewriteCond %{REQUEST_URI} ^/storage [NC]
+RewriteRule ^.*$ /index.pl [L,QSA]
+
+# All files and folders that don't exist
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Send to /index.pl (including any query strings added at the end)
+RewriteRule ^.*$ /index.pl [L,QSA]
