@@ -1742,10 +1742,11 @@ sub verifyPassword {
 
 # Find password for an existing user
 sub getPassword {
-	my ( $user ) = @_;
+	my ( $user, $realm ) = @_;
 	
 	my $pass = '';
-	my $file = storage( USER_FILE );
+  	
+	my $file = storage( catfile( $realm, USER_FILE ) );
 	
 	open( my $lines, '<', $file ) or exit 1;
 	while ( <$lines> ) {
@@ -1764,15 +1765,15 @@ sub getPassword {
 
 # Save new user with password or edit existing 
 sub savePassword {
-	my ( $user, $pass ) = @_;
+	my ( $user, $pass, $realm ) = @_;
 	
 	# Username with matching password
 	my $npass = "$user	$pass\n";
-	
-	my $ifile = storage( USER_FILE );
+ 	
+	my $ifile = storage( catfile( $realm, USER_FILE ) );
 	open( INF, '<', $ifile ) or exit 1;
 	
-	my $ofile = storage( USER_FILE . '.new' );
+	my $ofile = storage( catfile( $realm, USER_FILE . '.new' ) );
 	open( ONF, '>', $ofile ) or exit 1;
 	
 	my $found = 0;
@@ -1811,23 +1812,26 @@ sub savePassword {
 
 # Create a new user login if username doesn't exist
 sub newLogin {
-	my ( $user, $pass ) = @_;
+	my ( $user, $pass, $realm ) = @_;
 	$pass = password( $pass );
-	
-	my $existing = getPassword( $user );
+	$realm	//= '';
+ 	
+	my $existing = getPassword( $user, $realm );
 	
 	if ( $existing ne '' ) {
 		return 0;
 	}
 	
-	savePassword( $user, password( $pass ) );
+	savePassword( $user, password( $pass ), $realm );
 	return 1;
 }
 
 # Update existing user login
 sub updateLogin {
-	my ( $user, $newpass, $oldpass ) = @_;
-	my $existing = getPassword( $user );
+	my ( $user, $newpass, $oldpass, $realm ) = @_;
+ 	$realm	//= '';
+  	
+	my $existing = getPassword( $user, $realm );
 	
 	if ( $existing eq '' ) {
 		return 0;
@@ -1837,7 +1841,7 @@ sub updateLogin {
 		return 0;
 	}
 	
-	savePassword( $user, password( $newpass ) );
+	savePassword( $user, password( $newpass ), $realm );
 	return 1;
 }
 
