@@ -332,9 +332,11 @@ sub fileList {
 # Get file contents
 sub fileRead {
 	my ( $file ) = @_;
-	my $out = '';
+	my $out	= '';
 	
-	open( my $lines, '<:encoding(UTF-8)', $file ) or exit 1;
+	$file	=~ /^(.*)$/ and $file = $1;
+	
+	open ( my $lines, '<:encoding(UTF-8)', $file ) or exit 1;
 	while ( <$lines> ) {
 		$out .= $_;
 	}
@@ -347,7 +349,9 @@ sub fileRead {
 sub fileWrite {
 	my ( $file, $data ) = @_;
 	
-	open( my $lines, '>:encoding(UTF-8)', $file ) or exit 1;
+	$file	=~ /^(.*)$/ and $file = $1;
+	
+	open ( my $lines, '>:encoding(UTF-8)', $file ) or exit 1;
 	print $lines $data;
 	
 	close ( $lines );
@@ -986,7 +990,7 @@ sub sessionStart {
 	sessionID( $id );
 	
 	my $values = decode_json( "$data" );
-	foreach my $key ( %{$values} ) {
+	foreach my $key ( keys %{$values} ) {
 		sessionWrite( $key, $values->{$key} );
 	}
 }
@@ -1027,9 +1031,9 @@ sub sessionGC {
 			next;
 		}
 		
-		my $fstat	= stat( $file );
-		if ( $fstat ) {
-			if ( ( $ntime - $fstat->mtime ) > SESSION_GC ) {
+		my @fstat	= stat( $file );
+		if ( @fstat ) {
+			if ( ( $ntime - $fstat[9] ) > SESSION_GC ) {
 				unlink ( $file );
 			}
 		}
