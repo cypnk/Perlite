@@ -348,7 +348,8 @@ sub fileWrite {
 	my ( $file, $data ) = @_;
 	
 	open( my $lines, '>', $file ) or exit 1;
-	print $file $data;
+	print $lines $data;
+	
 	close ( $lines );
 }
 
@@ -1051,6 +1052,11 @@ sub sessionWriteClose {
 	# Skip writing if there is no data
 	if ( ! keys %data ) {
 		return;
+	}
+	
+	my $sdir	= storage( SESSION_DIR );
+	unless ( -d $sdir ) {
+		mkdir( $sdir, 0644 );
 	}
 	
 	my $sfile	= storage( catfile( SESSION_DIR, sessionID() ) );
@@ -2253,8 +2259,16 @@ sub viewHome {
 	}
 	
 	httpCode( 200 );
-	preamble();
 	
+	sessionStart();
+	
+	my $stime = sessionGet( 'start' );
+	if ( $stime eq '' ) {
+		$stime = time();
+		sessionWrite( 'start', $stime );
+	}
+	
+	preamble();
 	my $out	= '';
 	foreach my $key ( keys %$params ) {
 		$out .= "<p>$key: $params->{$key}</p>";
