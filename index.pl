@@ -334,7 +334,7 @@ sub fileRead {
 	my ( $file ) = @_;
 	my $out = '';
 	
-	open( my $lines, '<', $file ) or exit 1;
+	open( my $lines, '<:encoding(UTF-8)', $file ) or exit 1;
 	while ( <$lines> ) {
 		$out .= $_;
 	}
@@ -347,7 +347,7 @@ sub fileRead {
 sub fileWrite {
 	my ( $file, $data ) = @_;
 	
-	open( my $lines, '>', $file ) or exit 1;
+	open( my $lines, '>:encoding(UTF-8)', $file ) or exit 1;
 	print $lines $data;
 	
 	close ( $lines );
@@ -383,7 +383,7 @@ sub searchFiles {
 			last;
 		}
 		
-		open ( my $fh, '<', $fpath ) or next;
+		open ( my $fh, '<:encoding(UTF-8)', $fpath ) or next;
 		
 		# Line-by line search
 		while ( my $line = <$fh> ) {
@@ -2041,7 +2041,7 @@ sub getPassword {
 	
 	my $file = storage( catfile( $realm, USER_FILE ) );
 	
-	open( my $lines, '<', $file ) or exit 1;
+	open( my $lines, '<:encoding(UTF-8)', $file ) or exit 1;
 	while ( <$lines> ) {
 		my ( $u, $p ) = $_ =~ /(.*)	(.*)/;
 		
@@ -2064,10 +2064,10 @@ sub savePassword {
 	my $npass = "$user	$pass\n";
 	
 	my $ifile = storage( catfile( $realm, USER_FILE ) );
-	open( INF, '<', $ifile ) or exit 1;
+	open( INF, '<:encoding(UTF-8)', $ifile ) or exit 1;
 	
 	my $ofile = storage( catfile( $realm, USER_FILE . '.new' ) );
-	open( ONF, '>', $ofile ) or exit 1;
+	open( ONF, '>:encoding(UTF-8)', $ofile ) or exit 1;
 	
 	my $found = 0;
 	
