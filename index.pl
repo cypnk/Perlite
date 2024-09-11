@@ -2043,7 +2043,7 @@ sub getPassword {
 	
 	open( my $lines, '<', $file ) or exit 1;
 	while ( <$lines> ) {
-		my ( $u, $p ) = $_ =~ /(.*):(.*)/;
+		my ( $u, $p ) = $_ =~ /(.*)	(.*)/;
 		
 		if ( $user eq $u ) {
 			$pass = $p;
