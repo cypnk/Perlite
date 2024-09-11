@@ -16,10 +16,11 @@ use File::Temp qw( tempfile tempdir );
 use File::Spec::Functions qw( catfile );
 use File::Basename;
 use Encode;
-use Digest::SHA qw( sha1_hex sha1_base64 sha384_hex sha384_base64 sha512_hex );
+use Digest::SHA qw( sha1_hex sha1_base64 sha256_hex sha384_hex sha384_base64 sha512_hex );
 use Fcntl qw( SEEK_SET O_WRONLY O_EXCL O_RDWR O_CREAT );
 use Time::HiRes ();
 use Time::Piece;
+use JSON qw( decode_json encode_json );
 
 # Perl version
 use 5.32.1;
@@ -61,6 +62,9 @@ use constant {
 	
 	
 	# Session defaults
+	
+	# Session storage fubfolder in storage
+	SESSION_DIR		=> "sessions",
 	
 	# Time before session cookie expires
 	SESSION_LIFETIME	=> 1800,
@@ -337,6 +341,15 @@ sub fileRead {
 	
 	close ( $lines );
 	return $out;
+}
+
+# Write contents to file
+sub fileWrite {
+	my ( $file, $data ) = @_;
+	
+	open( my $lines, '>', $file ) or exit 1;
+	print $file $data;
+	close ( $lines );
 }
 
 # Search directory for words
@@ -775,6 +788,280 @@ sub formData {
 	$data{'files'}	= @uploads;
 	
 	return %data;
+}
+
+
+
+
+# Cookie handling
+
+
+
+
+# Get all cookie data from request
+sub getCookies {
+	state %sent;
+	
+	if ( keys %sent ) {
+		return %sent;
+	}
+	
+	my @items	= split( /;/, $ENV{'HTTP_COOKIE'} //= '' );
+	foreach ( @items ) {
+		my ( $k, $v )	= split( /=/, $_ );
+		
+		# Clean prefixes, if any
+		$k		=~ s/^__(Host|Secure)\-//gi;
+		$sent{pacify( $k )} = pacify( $v );
+	}
+	
+	return %sent;
+}
+
+# Get specific cookie key value, if it exists
+sub getCookieData {
+	my ( $key ) = @_;
+	my %cookies = getCookies();
+	
+	return $cookies{$key} //= '';
+}
+
+# Set host/secure limiting prefix
+sub cookiePrefix {
+	my %request	= getRequest();
+	return 
+	( COOKIE_PATH eq '/' && $request{'secure'} ) ? 
+		'__Host-' : ( $request{'secure'} ? '__Secure-' : '' );
+}
+
+# Set a cookie with default parameters
+sub setCookie {
+	my ( $name, $value, $ttl ) = @_;
+	my $prefix	= cookiePrefix();
+	my %request	= getRequest();
+	
+	$ttl	//= COOKIE_EXP;
+	$ttl	= ( $ttl > 0 ) ? $ttl : ( ( $ttl == -1 ) ? 1 : 0 );
+	
+	my @values	= ( 
+		$prefix . "$name=$value",
+		'Path=' . COOKIE_PATH,
+		'SameSite=Strict',
+		'HttpOnly',
+	);
+	
+	# Cookies without explicit expiration left up to the browser
+	if ( $ttl != 0 ) {
+		push ( @values, 'Max-Age=' . $ttl );
+		push ( @values, 'Expires=' . gmtime( $ttl + time() ) .' GMT' );
+	}
+	
+	if ( $request{'secure'} ) {
+		push ( @values, 'Secure' );
+	} 
+	
+	if ( $prefix eq '__Secure' || $prefix eq '' ) {
+		push ( @values, 'Domain=' . $request{'realm'} );
+	}
+	
+	my $cookie	= join( '; ', @values );
+	print "Set-Cookie: $cookie\n";
+}
+
+# Erease already set cookie by name
+sub deleteCookie {
+	my ( $name ) = @_;
+	setCookie( $name, "", -1 );
+}
+
+
+
+
+# Session management
+
+
+
+
+# Strip any non-cookie ID data
+sub sessionCleanID {
+	my ( $id ) = @_;
+	$id		= pacify( $id );
+	$id		=~ /^([a-zA-Z0-9]{20,255})$/;
+	
+	return $id;
+}
+
+# Generate or return session ID
+sub sessionID {
+	my ( $sent ) = @_;
+	state $id = '';
+	
+	$sent //= '';
+	if ( $sent ne '' ) {
+		$id = sessionCleanID( $sent ); 
+	}
+	
+	if ( $id eq '' ) {
+		# New pseudorandom ID
+		$id = sha256_hex( 
+			Time::HiRes::time() . rand( 2**32 ) 
+		);
+	}
+	
+	return $id;
+}
+
+# Send session cookie
+sub sessionSend {
+	setCookie( 'session', sessionID(), SESSION_LIFETIME );
+}
+
+# Create a new session with blank data
+sub sessionNew {
+	sessionID( '' );
+	sessionSend();
+}
+
+# Get or store session data to scoped hash
+sub sessionWrite {
+	my ( $key, $value ) = @_;
+	
+	# Session stroage data
+	state %session_data = ();
+	
+	if ( $key ) {
+		$session_data{$key} = $value;
+		return;
+	}
+	
+	return %session_data;
+}
+
+# Read cookie data from database, given the ID
+sub sessionRead {
+	my ( $id ) = @_;
+	
+	$id		= sessionCleanID( $id );
+	
+	my $sfile	= storage( catfile( SESSION_DIR, $id ) );
+	my $data	= -f $sfile ? fileRead( $sfile ) : '';
+	
+	return $data;
+}
+
+# Start session with ID, if given, or a fresh session
+sub sessionStart {
+	my ( $id ) = @_;
+	
+	state $start = 0;
+	if ( $start ) {
+		return;
+	}
+	
+	# Get raw ID from cookie
+	$id	//= getCookieData( 'session' );
+	
+	# Clean ID
+	$id	= sessionCleanID( $id );
+	
+	# Mark started
+	$start	= 1;
+	
+	if ( $id eq '' ) {
+		# New session data
+		sessionNew();
+		return;
+	}
+	
+	my $data = sessionRead( $id );
+	
+	# Invalid existing cookie? Reset
+	if ( $data eq '' ) {
+		sessionNew();
+		return;
+	}
+	
+	# Restore session from cookie
+	sessionID( $id );
+	
+	my $values = decode_json( "$data" );
+	foreach my $key ( %{$values} ) {
+		sessionWrite( $key, $values->{$key} );
+	}
+}
+
+# Get data by session key value
+sub sessionGet {
+	my ( $key ) = @_;
+	
+	sessionStart();
+	my %data = sessionWrite();
+	return $data{$key} //= '';
+}
+
+# Delete seession
+sub sessionDestroy {
+	my ( $id ) = @_;
+	$id		= sessionCleanID( $id );
+	
+	my $sfile	= storage( catfile( SESSION_DIR, $id ) );
+	if ( -f $sfile ) {
+		unlink ( $sfile );
+	}
+}
+
+# Garbage collection
+sub sessionGC {
+	my $sdir	= storage( SESSION_DIR );
+	my $ntime	= time();
+	
+	opendir( my $dh, $sdir ) or exit 1;
+	while ( readdir( $dh ) ) {
+		my $file	= catfile( $sdir, $_ );
+		if ( $file eq '.' or $file eq '..' ) {
+			next;
+		}
+		
+		if ( ! -f $file ) {
+			next;
+		}
+		
+		my $fstat	= stat( $file );
+		if ( $fstat ) {
+			if ( ( $ntime - $fstat->mtime ) > SESSION_GC ) {
+				unlink ( $file );
+			}
+		}
+	}
+	
+	closedir( $dh );
+}
+
+# Finish and save session data, if it exists
+sub sessionWriteClose {
+	state $written	= 0;
+	
+	# Avoid double write and close
+	if ( $written ) {
+		return;
+	}
+	
+	my %data	= sessionWrite();
+	
+	# Skip writing if there is no data
+	if ( ! keys %data ) {
+		return;
+	}
+	
+	my $sfile	= storage( catfile( SESSION_DIR, sessionID() ) );
+	fileWrite( $sfile, encode_json( \%data ) );
+	
+	$written = 1;
+}
+
+# Cleanup
+END {
+	sessionWriteClose();
 }
 
 
@@ -1745,7 +2032,7 @@ sub getPassword {
 	my ( $user, $realm ) = @_;
 	
 	my $pass = '';
-  	
+	
 	my $file = storage( catfile( $realm, USER_FILE ) );
 	
 	open( my $lines, '<', $file ) or exit 1;
@@ -1769,7 +2056,7 @@ sub savePassword {
 	
 	# Username with matching password
 	my $npass = "$user	$pass\n";
- 	
+	
 	my $ifile = storage( catfile( $realm, USER_FILE ) );
 	open( INF, '<', $ifile ) or exit 1;
 	
@@ -1813,9 +2100,9 @@ sub savePassword {
 # Create a new user login if username doesn't exist
 sub newLogin {
 	my ( $user, $pass, $realm ) = @_;
-	$pass = password( $pass );
+	$pass	= password( $pass );
 	$realm	//= '';
- 	
+	
 	my $existing = getPassword( $user, $realm );
 	
 	if ( $existing ne '' ) {
@@ -1829,8 +2116,8 @@ sub newLogin {
 # Update existing user login
 sub updateLogin {
 	my ( $user, $newpass, $oldpass, $realm ) = @_;
- 	$realm	//= '';
-  	
+	$realm	//= '';
+	
 	my $existing = getPassword( $user, $realm );
 	
 	if ( $existing eq '' ) {
@@ -1893,9 +2180,34 @@ sub route() {
 
 
 
+
 # View routes
 
 
+
+
+
+# Create a typical response for a limited access view, E.G. login page etc...
+sub safeView {
+	my ( $realm, $verb ) = @_;
+	
+	if ( $verb eq 'options' ) {
+		httpCode( '204' );
+		sendOptions();
+		setCacheExp( 604800 );
+		sendOrigin( $realm );
+		exit;
+	}
+	
+	httpCode( '200' );
+	if ( $verb eq 'head' ) {
+		# Nothing else to send
+		exit;
+	}
+	
+	sendOrigin( $realm );
+	preamble();
+}
 
 # Static/Uploaded file routes
 sub viewStatic {
