@@ -12,6 +12,7 @@ use utf8;
 # Standard modules in use
 use MIME::Base64;
 use File::Basename;
+use File::Copy;
 use File::Temp qw( tempfile tempdir );
 use File::Spec::Functions qw( catfile );
 use File::Basename;
@@ -45,6 +46,9 @@ use constant {
 	
 	# Username and password storage file name
 	USER_FILE		=> "users.txt",
+	
+	# Username and given permissions
+	ROLE_FILE		=> "roles.txt",
 	
 	# Password hashing rounds
 	HASH_ROUNDS		=> 1000,
@@ -268,7 +272,13 @@ sub storage {
 # File lock/unlock helper
 sub fileLock {
 	my ( $fname, $ltype ) = @_;
-	my $fl		= "$fname.lock___";
+	
+	$fname	= unifySpaces( $fname );
+	$fname	=~ /^(.*)$/ and $fname = $1;
+	
+	# Lockfile name
+	my $fl	= "$fname.lock___";
+	$fl	=~ /^(.*)$/ and $fl = $1;
 	
 	# Default to removing lock
 	$ltype		//= 0;
@@ -279,12 +289,12 @@ sub fileLock {
 		if ( ! -f $fl ) {
 			return 1;
 		}
-		unlink $fl;
+		unlink( $fl );
 		return 1;
 	}
 	
 	my $tries	= LOCK_TRIES;
-	while ( not sysopen ( $fl, $fname, O_WRONLY | O_EXCL | O_CREAT ) ) {
+	while ( not sysopen ( my $fh, $fl, O_WRONLY | O_EXCL | O_CREAT ) ) {
 		if ( $tries == 0 ) {
 			return 0;
 		}
@@ -2047,7 +2057,7 @@ sub getPassword {
 	
 	open( my $lines, '<:encoding(UTF-8)', $file ) or exit 1;
 	while ( <$lines> ) {
-		my ( $u, $p ) = $_ =~ /(.*)	(.*)/;
+		my ( $u, $p ) = $_ =~ /(.*)\t(.*)/;
 		
 		if ( $user eq $u ) {
 			$pass = $p;
@@ -2065,15 +2075,25 @@ sub savePassword {
 	my ( $user, $pass, $realm ) = @_;
 	
 	# Username with matching password
-	my $npass = "$user	$pass\n";
+	my $npass	= "$user	$pass\n";
 	
-	my $ifile = storage( catfile( $realm, USER_FILE ) );
+	my $ifile	= storage( catfile( $realm, USER_FILE ) );
+	
+	# Try to get a lock for this user file
+	fileLock( $ifile, 1 ) or exit 1;
+	
+	# No user file for this realm? Create it
+	if ( ! -f $ifile ) {
+		open( INF, '>:encoding(UTF-8)', $ifile ) or exit 1;
+		close( INF );
+	}
+	
 	open( INF, '<:encoding(UTF-8)', $ifile ) or exit 1;
 	
-	my $ofile = storage( catfile( $realm, USER_FILE . '.new' ) );
+	my $ofile	= storage( catfile( $realm, USER_FILE . '.new' ) );
 	open( ONF, '>:encoding(UTF-8)', $ofile ) or exit 1;
 	
-	my $found = 0;
+	my $found	= 0;
 	
 	# Find if user exists
 	while ( my $line = <INF> ) {
@@ -2084,13 +2104,17 @@ sub savePassword {
 		}
 		
 		# Check current user/pass combination
-		my ( $u, $p ) = $line =~ /(.*)	(.*)/;
+		my ( $u, $p ) = $line =~ /(.*)\t(.*)/;
 		if ( $user eq $u ) {
 			$found	= 1;
 			
 			# Swap existing line with new pair
 			print ONF $npass;
+			next;
 		}
+		
+		# Continue copying
+		print ONF $line;
 	}
 	
 	close( INF );
@@ -2103,8 +2127,11 @@ sub savePassword {
 	close( ONF );
 	
 	# Change current user file to backup and make new file current
-	rename( $ifile, $ifile . '.bak' ) or exit 1;
-	rename( $ofile, $ifile ) or exit 1;
+	copy( $ifile, $ifile . '.bak' ) or exit 1;
+	move( $ofile, $ifile ) or exit 1;
+	
+	# Clear lock
+	fileLock( $ifile, 0 );
 }
 
 # Create a new user login if username doesn't exist
