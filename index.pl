@@ -15,7 +15,6 @@ use File::Basename;
 use File::Copy;
 use File::Temp qw( tempfile tempdir );
 use File::Spec::Functions qw( catfile );
-use File::Basename;
 use Encode;
 use Digest::SHA qw( sha1_hex sha1_base64 sha256_hex sha384_hex sha384_base64 sha512_hex );
 use Fcntl qw( SEEK_SET O_WRONLY O_EXCL O_RDWR O_CREAT );
@@ -83,14 +82,23 @@ our %path_map = (
 		# Homepage
 		{ path => "",				handler => \&viewHome },
 		
-		# Static file
+		# Paginated index
 		{ path => "page:page",			handler => \&viewHome },
 		
+		# Static file
 		{ path => "static/:file",		handler => \&viewStatic },
 		{ path => "static/:tree/:file",		handler => \&viewStatic },
 		
+		# Content creating/editing
+		{ path => "new",			handler => \&viewNewPost },
+		{ path => "edit/:tree",			handler => \&viewEditPost },
+		
+		# Access pages
 		{ path => "login",			handler => \&viewLogin },
-		{ path => "register",			handler => \&viewRegister }
+		{ path => "register",			handler => \&viewRegister },
+		
+		# Segment page or section
+		{ path => ":tree",			handler => \&viewHome }
 	],
 	
 	post	=> [
@@ -108,8 +116,14 @@ our %path_map = (
 		{ path => "static/:file",		handler => \&viewStatic },
 		{ path => "static/:tree/:file",		handler => \&viewStatic },
 		
+		{ path => "new",			handler => \&viewNewPost },
+		{ path => "edit/:tree",			handler => \&viewEditPost },
+		
 		{ path => "login",			handler => \&viewLogin },
-		{ path => "register",			handler => \&viewRegister }
+		{ path => "register",			handler => \&viewRegister },
+		
+		# Segment page or section
+		{ path => ":tree",			handler => \&viewHome }
 	]
 );
 
@@ -2251,7 +2265,7 @@ sub viewStatic {
 	my ( $realm, $verb, $params ) = @_;
 	
 	if ( $verb eq 'options' ) {
-		sendOptions( 'GET, HEAD, OPTIONS');
+		sendOptions( 0, 'GET, HEAD, OPTIONS' );
 	}
 	
 	my $tree	= $params->{'tree'} //= '';
@@ -2286,7 +2300,7 @@ sub viewHome {
 	# Send options, if asked
 	# TODO: Limit options based on realm
 	if ( $verb eq 'options' ) {
-		sendOptions();
+		sendOptions( 0, 'GET, HEAD, OPTIONS' );
 	}
 	
 	httpCode( 200 );
@@ -2320,12 +2334,7 @@ sub viewHome {
 # TODO: Login page
 sub viewLogin {
 	my ( $realm, $verb, $params ) = @_;
-	if ( $verb eq 'options' ) {
-		sendOptions();
-	}
-	
-	httpCode( 200 );
-	preamble();
+	safeView( $realm, $verb );
 	
 	print "Login page";
 }
@@ -2334,7 +2343,7 @@ sub viewLogin {
 sub doLogin {
 	my ( $realm, $verb, $params ) = @_;
 	if ( $verb eq 'options' ) {
-		sendOptions( 'POST, OPTIONS');
+		sendOptions( 0, 'POST, OPTIONS' );
 	}
 	
 	httpCode( 200 );
@@ -2347,12 +2356,7 @@ sub doLogin {
 # TODO: Register page
 sub viewRegister {
 	my ( $realm, $verb, $params ) = @_;
-	if ( $verb eq 'options' ) {
-		sendOptions();
-	}
-	
-	httpCode( 200 );
-	preamble();
+	safeView( $realm, $verb );
 	
 	print "Register page";
 }
@@ -2361,7 +2365,7 @@ sub viewRegister {
 sub doRegister {
 	my ( $realm, $verb, $params ) = @_;
 	if ( $verb eq 'options' ) {
-		sendOptions( 'POST, OPTIONS');
+		sendOptions( 0, 'POST, OPTIONS' );
 	}
 	
 	httpCode( 201 );
@@ -2374,19 +2378,35 @@ sub doRegister {
 # TODO: New post page
 sub viewNewPost {
 	my ( $realm, $verb, $params ) = @_;
+	safeView( $realm, $verb );
 	
-	if ( $verb eq 'options' ) {
-		sendOptions();
-	}
-	
-	httpCode( 200 );
-	preamble();
-	
-	
+	print "New post page";
 }
 
 # TODO: Execute new post
 sub doNewPost {
+	my ( $realm, $verb, $params ) = @_;
+	if ( $verb eq 'options' ) {
+		sendOptions( 0, 'POST, OPTIONS' );
+	}
+	
+	httpCode( 201 );
+	preamble();
+	foreach my $key ( keys %$params ) {
+		print "<p>$key: $params->{$key}</p>";
+	}
+}
+
+# TODO: Editing existing page
+sub viewEditPost {
+	my ( $realm, $verb, $params ) = @_;
+	safeView( $realm, $verb );
+	
+	print "Editing post page";
+}
+
+# TODO: Execute editing post
+sub doEditPost {
 	my ( $realm, $verb, $params ) = @_;
 	if ( $verb eq 'options' ) {
 		sendOptions( 0, 'POST, OPTIONS' );
