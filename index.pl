@@ -1,5 +1,6 @@
 #!/usr/bin/perl -wT
 
+package Perlite;
 
 # Basic security
 use strict;
@@ -33,6 +34,9 @@ use constant {
 	
 	# Writable content location
 	STORAGE_DIR		=> "storage",
+	
+	# Default configuration file name in storage and per-site
+	CONFIG_FILE		=> "config.json",
 	
 	# Uploaded file subfolder in storage
 	UPLOADS			=> "uploads",
@@ -70,7 +74,7 @@ use constant {
 	SESSION_DIR		=> "sessions",
 	
 	# Time before session cookie expires
-	SESSION_LIFETIME	=> 1800,
+	SESSION_EXP		=> 1800,
 	
 	# Time between cleaning up old cookies
 	SESSION_GC		=> 3600
@@ -112,6 +116,7 @@ our %path_map = (
 	head	=> [	
 		# Homepage
 		{ path => "",				handler => \&viewHome },
+		{ path => "page:page",			handler => \&viewHome },
 		
 		{ path => "static/:file",		handler => \&viewStatic },
 		{ path => "static/:tree/:file",		handler => \&viewStatic },
@@ -571,6 +576,47 @@ sub verifyDate {
 	return 1;
 }
 
+# Load configuration by realm or core
+sub config {
+	my ( $realm )		= @_;
+	
+	state %settings		= ();
+	if ( keys %settings ) {
+		return %settings;
+	}
+	
+	$realm			//= '';
+	
+	# Default config
+	my $conf		= fileRead( storage( CONFIG_FILE ) );
+	if ( $conf eq '' ) {
+		return ();
+	}
+	
+	%settings		= decode_json( $conf );
+	
+	# Find realm specific config, if given, and merge to core
+	if ( $realm ne '' ) {
+		my $rconf	=  fileRead( catfile( $realm, CONFIG_FILE ) );
+		if ( $rconf ne '' ) {
+			my %nconfig	= decode_json( $rconf );
+			if ( keys %nconfig ) {
+				%settings	= { %settings, %nconfig };
+			}
+		}
+	}
+	
+	return %settings;
+}
+
+# Main configuration by realm or core
+sub setting {
+	my ( $label, $realm )	= @_;
+	
+	my $config		= config( $realm );
+	return $config{$label} // '';
+}
+
 
 
 # Request 
@@ -942,7 +988,7 @@ sub sessionID {
 
 # Send session cookie
 sub sessionSend {
-	setCookie( 'session', sessionID(), SESSION_LIFETIME );
+	setCookie( 'session', sessionID(), SESSION_EXP );
 }
 
 # Create a new session with blank data
@@ -2088,6 +2134,8 @@ sub getPassword {
 sub savePassword {
 	my ( $user, $pass, $realm ) = @_;
 	
+	$pass		= hashPassword( $pass );
+	
 	# Username with matching password
 	my $npass	= "$user	$pass\n";
 	
@@ -2160,7 +2208,7 @@ sub newLogin {
 		return 0;
 	}
 	
-	savePassword( $user, password( $pass ), $realm );
+	savePassword( $user, $pass, $realm );
 	return 1;
 }
 
@@ -2179,7 +2227,7 @@ sub updateLogin {
 		return 0;
 	}
 	
-	savePassword( $user, password( $newpass ), $realm );
+	savePassword( $user, $newpass, $realm );
 	return 1;
 }
 
@@ -2190,9 +2238,6 @@ sub updateLogin {
 
 
 sub route() {
-	#my ( $path_map )= @_;
-	
-	
 	my %request	= getRequest();
 	
 	my $verb 	= $request{'verb'};
