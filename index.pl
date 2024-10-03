@@ -579,21 +579,29 @@ sub verifyDate {
 # Load configuration by realm or core
 sub config {
 	my ( $realm )		= @_;
+	$realm			//= '';
 	
 	state %settings		= ();
-	if ( keys %settings ) {
-		return %settings;
-	}
+	state %rsettings	= ();
 	
-	$realm			//= '';
+	if ( $realm ne '' ) {
+		if ( keys %rsettings ) {
+			return %rsettings;
+		}
+	} else {
+		if ( keys %settings ) {
+			return %settings;
+		}
+	}
 	
 	# Default config
 	my $conf		= fileRead( storage( CONFIG_FILE ) );
-	if ( $conf eq '' ) {
+	if ( $conf ne '' ) {
+		%settings		= decode_json( $conf );
+	} else {
 		return ();
 	}
 	
-	%settings		= decode_json( $conf );
 	
 	# Find realm specific config, if given, and merge to core
 	if ( $realm ne '' ) {
@@ -601,9 +609,11 @@ sub config {
 		if ( $rconf ne '' ) {
 			my %nconfig	= decode_json( $rconf );
 			if ( keys %nconfig ) {
-				%settings	= { %settings, %nconfig };
+				%rsettings	= { %settings, %nconfig };
 			}
 		}
+		
+		return %rsettings;
 	}
 	
 	return %settings;
