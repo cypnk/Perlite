@@ -54,7 +54,7 @@ use constant {
 	ROLE_FILE		=> "roles.txt",
 	
 	# Password hashing rounds
-	HASH_ROUNDS		=> 1000,
+	HASH_ROUNDS		=> 10000,
 	
 	# File lock attempts
 	LOCK_TRIES		=> 4,
@@ -2079,9 +2079,20 @@ sub genSalt {
 	return join( '', map( +@pool[rand( 64 )], 1..$len ) );
 }
 
+# Generate HMAC digest
+sub hmacDigest {
+	my ( $key, $data )	= @_;
+	my $hmac		= Digest::HMAC->new( $key, \&sha384 );
+	
+	$hmac->add( $data );
+	my $out			= $hmac->digest;
+	
+	return $out;
+}
+
 # Generate a hash from given password and optional salt
 sub hashPassword {
-	my ( $pass, $salt, $csalt ) = @_;
+	my ( $pass, $salt ) = @_;
 	
 	# Generate new salt, if empty
 	$salt		//= genSalt( 16 );
@@ -2090,20 +2101,25 @@ sub hashPassword {
 	my @chunks	= 
 		split( /(?=(?:.{8})+\z)/s, sha512_hex( $salt . $pass ) );
 	
-	my $cr		= ''; # Crypt result
-	my $block	= ''; # Hash block
+	my $out		= '';	# Hash result
+	my $key		= '';	# Digest key per block
+	my $block	= '';	# Hash block
 	
 	for ( @chunks ) {
-		# Use chunk's last 2 chars as salt for crypt and hash 1000 times
-		$block = crypt( $_, substr( $_, 0, -2 ) );
+		# Generate digest with key from crypt
+		$key	= crypt( $_, substr( sha256_hex( $_ ), 0, -2 ) );
+		$block	= hmacDigest( $key, $_ );
+		
+		# Generate hashed block from digest
 		for ( 1..HASH_ROUNDS ) {
-			$block = sha384_hex( $block );
+			$block	= sha384_hex( $block );
 		}
 		
-		$cr		.= $block;
+		# Add block to output
+		$out		.= sha384_hex( $block );
 	}
 	
-	return $salt . $cr;
+	return $salt . $out;
 }
 
 # Match raw password against stored hash
