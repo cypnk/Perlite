@@ -2092,10 +2092,11 @@ sub hmacDigest {
 
 # Generate a hash from given password and optional salt
 sub hashPassword {
-	my ( $pass, $salt ) = @_;
+	my ( $pass, $salt, $rounds ) = @_;
 	
 	# Generate new salt, if empty
 	$salt		//= genSalt( 16 );
+	$rounds		//= HASH_ROUNDS;
 	
 	# Crypt-friendly blocks
 	my @chunks	= 
@@ -2111,7 +2112,7 @@ sub hashPassword {
 		$block	= hmacDigest( $key, $_ );
 		
 		# Generate hashed block from digest
-		for ( 1..HASH_ROUNDS ) {
+		for ( 1..$rounds ) {
 			$block	= sha384_hex( $block );
 		}
 		
@@ -2119,14 +2120,16 @@ sub hashPassword {
 		$out		.= sha384_hex( $block );
 	}
 	
-	return $salt . $out;
+	return $salt . ':' . $rounds . ':' . $out;
 }
 
 # Match raw password against stored hash
 sub verifyPassword {
 	my ( $pass, $stored ) = @_;
 	
-	if ( $stored eq hashPassword( $pass, substr( $stored, 0, 16 ) ) ) {
+	my ( $salt, $rounds, $spass ) = split( /:/, $stored );
+	
+	if ( $stored eq hashPassword( $pass, $salt, $rounds ) ) {
 		return 1;
 	}
 	
