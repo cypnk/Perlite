@@ -787,9 +787,11 @@ sub rawRead {
 	my ( $br ) = @_;
 	my $out	= '';
 	
+ 	$br //= "\n";
+  	
 	# https://stackoverflow.com/a/54816600
 	while ( sysread( STDIN, my $byte, 1 ) ) {
-		if ( $byte eq "\n" ) {
+		if ( $byte eq $br ) {
 			return $out;
 		}
 		
@@ -806,15 +808,53 @@ sub formData {
 	}
 	
 	my %request_headers	= requestHeaders();
-	my $ctype		= $request_headers{'content_type'} // '';
+	my $clen		= $request_headers{'content_length'}	// 0;
+	if ( !$clen ) {
+		return %data;
+	}
+	
+	my $ctype		= $request_headers{'content_type'}	// '';
 	
 	# Check multipart boundary
 	my $boundary;
-	if ( $ctype =~ /boundary=(.+)$/ ) {
-		$boundary = $1;
+	if ( $ctype =~ /^multipart\/form-data;.*boundary=(?:"([^"]+)"|([^;]+))/ ) {
+		$boundary = $1 || $2;
 	} else {
 		return %data;
 	}
+	
+	# TODO: Get tempfile for buffered reading for large content lengths
+	
+	my $chunk;
+	my $bytes	= 0;
+	my $sent	= '';
+	
+	while ( $bytes < $clen ) {
+		$chunk		= '';
+		my $read	= sysread( STDIN, $chunk, $clen - $bytes );
+		
+		# TODO: Send error
+		if ( !defined $read ) {
+			return %data;
+		}
+		
+		$sent	.= $chunk;
+		$bytes	+= $read;
+	}
+	
+	# Content-Length vs actual sent mismatch?
+	if ( $bytes != $clen ) {
+		# TODO: Send error
+		return %data;
+	}
+	
+	my @segs	= split( /--\Q$boundary\E/, $sent );
+	if ( @segs < 2 ) {
+		return %data;
+	}
+	
+	shift @segs;
+	pop @segs;
 	
 	my %fields	= ();
 	my @uploads	= [];
@@ -825,12 +865,6 @@ sub formData {
 		name="([^"]+)"(?:;\s?filename="([^"]+)")?	# Labeled names
 	/ix;
 	
-	my $sent	= do { local $/; <STDIN> };
-	my @segs	= split( /--\Q$boundary\E/, $sent );
-	
-	shift @segs;
-	pop @segs;
-	
 	foreach my $part ( @segs ) {
 		# Break by new lines
 		my ( $headers, $content ) = split( /\r?\n\r?\n/, $part, 2 );
@@ -838,8 +872,25 @@ sub formData {
 		# Parse headers
 		my %parts;
 		foreach my $line ( split( /\r?\n/, $headers ) ) {
-			my ( $key, $value ) = split( /:\s*/, $line, 2 );
-			$parts{lc( $key )} = $value;
+			# Skip malformed headers
+			next unless $line;
+			unless ( $line =~ /^(\S+):\s*(.*)/) {
+				next;
+			}
+			
+			my ( $key, $value ) = ( lc( $1 ), $2 );
+			
+			# Trim
+			$value =~ s/^\s+|\s+$//g;
+			
+			# Duplicate headers?
+			if ( exists( $parts{$key} ) ) {
+				# TODO: Complex values
+				#push( @{$parts{$key}}, $value );
+				next;
+			} else {
+				$parts{$key} = $value;
+			}
 		}
 		
 		if ( $parts{'content-disposition'} =~ /$pattern/ ) {
@@ -852,6 +903,11 @@ sub formData {
 			# Intercept upload
 			if ( defined $fname ) {
 				my ( $tfh, $tname ) = tempfile();
+				# Temp file failed?
+				unless ( $tfh ) {
+					return %data;
+				}
+				
 				print $tfh $content;
 				close $tfh;
 				
@@ -869,8 +925,8 @@ sub formData {
 		}
 	}
 	
-	$data{'fields'} = %fields;
-	$data{'files'}	= @uploads;
+	$data{'fields'} = \%fields;
+	$data{'files'}	= \@uploads;
 	
 	return %data;
 }
