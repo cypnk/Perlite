@@ -657,12 +657,14 @@ sub requestHeaders {
 
 # Current host or server name/domain/ip address
 sub siteRealm {
-	my $realm = lc( $ENV{SERVER_NAME} // '' ) =~ s/[^a-zA-Z0-9\.]//gr;
+	my $realm	= lc( $ENV{SERVER_NAME} // '' ) =~ s/[^a-zA-Z0-9\.\-]//gr;
 	
-	# Check for reqested realm, if it exists, and end early if invalid
+	# End early on empty realm
+	if ( $realm eq '' ) { sendBadRequest(); }
+	
+	# Check for reqested realm, if it exists
 	my $dir = storage( catfile( 'sites', $realm ) );
-	
-	if ( $realm eq '' || ! -d $dir ) {
+	if ( ! -d $dir ) {
 		sendBadRequest();
 	}
 	
