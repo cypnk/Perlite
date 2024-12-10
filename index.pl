@@ -17,7 +17,7 @@ use File::Copy;
 use File::Temp qw( tempfile tempdir );
 use File::Spec::Functions qw( catfile );
 use Encode;
-use Digest::SHA qw( sha1_hex sha1_base64 sha256_hex sha384_hex sha384_base64 sha512_hex );
+use Digest::SHA qw( sha1_hex sha1_base64 sha256_hex sha384_hex sha384_base64 sha512_hex hmac_sha384 );
 use Fcntl qw( SEEK_SET O_WRONLY O_EXCL O_RDWR O_CREAT );
 use Time::HiRes ();
 use Time::Piece;
@@ -2135,12 +2135,9 @@ sub genSalt {
 # Generate HMAC digest
 sub hmacDigest {
 	my ( $key, $data )	= @_;
-	my $hmac		= Digest::HMAC->new( $key, \&sha384 );
+	my $hmac		= hmac_sha384( $data, $key );
 	
-	$hmac->add( $data );
-	my $out			= $hmac->digest;
-	
-	return $out;
+	return unpack( "H*", $hmac );
 }
 
 # Generate a hash from given password and optional salt
