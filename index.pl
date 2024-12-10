@@ -303,23 +303,26 @@ sub fileLock {
 	my ( $fname, $ltype ) = @_;
 	
 	$fname	= unifySpaces( $fname );
-	$fname	=~ /^(.*)$/ and $fname = $1;
+	unless ( $fname =~ /^(.*)$/ ) {
+		# File name failure
+		return 0;
+	}
+	$fname	= canonpath( $1 );
 	
 	# Lockfile name
 	my $fl	= "$fname.lock___";
-	$fl	=~ /^(.*)$/ and $fl = $1;
 	
 	# Default to removing lock
-	$ltype		//= 0;
+	$ltype	//= 0;
 	
 	# Remove lock
-	if ( $ltype eq 0 ) {
+	if ( $ltype == 0 ) {
 		# No lock
 		if ( ! -f $fl ) {
 			return 1;
 		}
-		unlink( $fl );
-		return 1;
+		unlink( $fl ) or return 0;
+		return 1; # Lock removed
 	}
 	
 	my $tries	= LOCK_TRIES;
@@ -328,10 +331,16 @@ sub fileLock {
 			return 0;
 		}
 		
+		# Couldn't open lock even without lock file existing?
+		if ( $! && $! != EEXIST ) {
+			return 0; # Lock failed
+		}
+		
 		$tries--;
 		sleep 0.1;
 	}
 	
+	# Lock acquired
 	return 1;
 }
 
