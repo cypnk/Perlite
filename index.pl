@@ -189,13 +189,13 @@ our %sec_headers = (
 # Usable text content
 sub pacify {
 	my ( $term ) = @_;
-	
-	# Remove unprintable/invalid characters
-	$term	=~ s/[^[:print:]]//g;
-	$term	=~ s/[\x{fdd0}-\x{fdef}]//g;
-	$term	=~ s/[\p{Cs}\p{Cf}\p{Cn}]//g;
-	
-	chomp( $term );
+	$term	=~ s/
+		^\s*			# Remove leading spaces
+		| [^[:print:]]		# Unprintable characters
+		| [\x{fdd0}-\x{fdef}]	# Invalid Unicode ranges
+		| [\p{Cs}\p{Cf}\p{Cn}]	# Surrogate/unassigned code points
+		| \s*$			# Trailing spaces
+	//gx;
 	return $term;
 }
 
@@ -230,8 +230,8 @@ sub utfDecode {
 	
 	$term	= pacify( $term );
 	$term	=~ s/\.{2,}/\./g;
-	$term	=~ s/\+/ /;
-	$term	=~ s/\%([\w]{2})/chr(hex($1))/ge;
+	$term	=~ s/\+/ /g;
+	$term	=~ s/\%([\da-fA-F]{2})/chr(hex($1))/ge;
 	$term	= Encode::decode_utf8( $term );
 	
 	chomp( $term );
@@ -278,12 +278,9 @@ sub storage {
 	( my $dir = STORAGE_DIR ) =~ s/^[\s]+|[\s\/]+$//g;
 	
 	$path	= pacify( $path );
-	
-	# Remove leading slashes and spaces, if any
-	$path	=~ s/^[\s\/]+//g;
-	
-	# Double dots
-	$path	=~ s/\.{2,}/\./g;
+ 	
+ 	# Remove leading slashes and spaces, if any, and double dots
+	$path =~ s/^[\s\/]+|\.{2,}/./g;
 	
 	return catfile( $dir, $path );
 }
