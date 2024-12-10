@@ -11,11 +11,13 @@ use warnings;
 use utf8;
 
 # Standard modules in use
+
+use Cwd qw( realpath );
 use MIME::Base64;
 use File::Basename;
 use File::Copy;
 use File::Temp qw( tempfile tempdir );
-use File::Spec::Functions qw( catfile );
+use File::Spec::Functions qw( catfile canonpath );
 use Encode;
 use Digest::SHA qw( sha1_hex sha1_base64 sha256_hex sha384_hex sha384_base64 sha512_hex hmac_sha384 );
 use Fcntl qw( SEEK_SET O_WRONLY O_EXCL O_RDWR O_CREAT );
@@ -273,14 +275,25 @@ sub textStartsWith {
 # Relative storage directory
 sub storage {
 	my ( $path ) = @_;
+	state $dir;
 	
-	# Remove leading spaces and trailing slashes, if any
-	( my $dir = STORAGE_DIR ) =~ s/^[\s]+|[\s\/]+$//g;
+	unless ( defined $dir ) {
+		$dir = pacify( STORAGE_DIR );
+		if ( $dir eq '' ) {
+			die "Storage directory is empty";
+		}
+		
+		$dir = realpath( canonpath( $dir ) );
+		unless ( -d $dir && -r $dir && -w $dir ) {
+			die "Storage directory is not accessible";
+		}
+	}
 	
 	$path	= pacify( $path );
  	
  	# Remove leading slashes and spaces, if any, and double dots
-	$path =~ s/^[\s\/]+|\.{2,}/./g;
+	$path	=~ s/^[\s\/]+//;
+	$path	=~ s/\.{2,}/\./g;
 	
 	return catfile( $dir, $path );
 }
