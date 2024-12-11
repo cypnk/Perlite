@@ -517,8 +517,13 @@ sub mimeList {
 # Timestamp helper
 sub dateRfc {
 	my ( $stamp ) = @_;
-	my $t = Time::Piece->strptime( $stamp, '%s' );
-	return $t->strftime();
+	
+	# Fallback to current time
+	$stamp = time() unless defined $stamp;
+	my $t = Time::Piece->strptime( "$stamp", '%s' );
+	
+	# RFC 2822
+	return $t->strftime( '%a, %d %b %Y %H:%M:%S %z' );
 }
 
 # Limit the date given to a maximum value of today
