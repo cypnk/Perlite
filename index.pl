@@ -2042,6 +2042,51 @@ sub formatLists {
 	return $html;
 }
 
+# Table data row
+sub formatRow {
+	my ( $row, $header )	= @_;
+	$header		//= 0;
+	
+	my $tag		= $header ? 'th' : 'td';
+	my $html	= '';
+	
+	# Split on pipe symbol, skipping escaped pipes '\|'
+	my @data	= split( /(?<!\\)\|/, $row );
+	$html		.= join( '', map { "<$tag>$_</$tag>" } @data );
+	
+	return "<tr>$html</tr>\n";
+}
+
+# Convert ASCII table to HTML
+sub formatTable {
+	my ( $table ) = @_;
+	my $html = "<table>\n";
+	
+	# Lines = Rows
+	my @rows = split( /\n/, $table );
+	
+	# In header row, if true
+	my $first	= 1;
+	
+	foreach my $row ( @rows ) {
+		# Trim
+		$row	=~ s/^\s+|\s+$//g;
+		
+		# Skip empty rows or lines with just separator
+		next if $row eq '' || $row =~ /^(\+|-)+$/;
+		
+		# First round is the header
+		unless ( $first ) {
+			$html	.= formatRow( $row, 1 );
+			$first	= 0;
+			next;
+		}
+		$html	.= formatRow( $row );
+	}
+	
+	return $html . "</table>\n";
+}
+
 # Simple subset of Markdown formatting with embedded media extraction
 sub markdown {
 	my ( $data ) = @_;
@@ -2120,6 +2165,12 @@ sub markdown {
 		'\n```(.*?)```\n?'
 		=> sub {
 			return "<pre><code>$1<\/code><\/pre>";
+		}, 
+		
+		# Tables
+		'(\+[-\+]+[\+\-]+\s*\|\s*.+?\n(?:\+[-\+]+[\+\-]+\s*\|\s*.+?\n)*)'
+		=> sub {
+			return formatTable( $1 );
 		},
 		
 		# References, Media, Embeds etc...
