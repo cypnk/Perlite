@@ -12,12 +12,11 @@ use utf8;
 
 # Standard modules in use
 
-use Cwd qw( realpath );
 use MIME::Base64;
 use File::Basename;
 use File::Copy;
 use File::Temp qw( tempfile tempdir );
-use File::Spec::Functions qw( catfile canonpath );
+use File::Spec::Functions qw( catfile canonpath file_name_is_absolute rel2abs );
 use Encode;
 use Digest::SHA qw( sha1_hex sha1_base64 sha256_hex sha384_hex sha384_base64 sha512_hex hmac_sha384 );
 use Fcntl qw( SEEK_SET O_WRONLY O_EXCL O_RDWR O_CREAT );
@@ -272,6 +271,36 @@ sub textStartsWith {
 
 
 
+# Convert to a valid file or directory path
+sub filterPath {
+	my ( $path, $ns ) = @_;
+	
+	# Define reserved characters
+	state @reserved	= qw( : * ? " < > | ; );
+	
+	# New filter characters?
+	if ( ref($ns) eq 'ARRAY' && @{$ns} ) {
+		# Merge with the reserved pool
+		push( @reserved, @{$ns} );
+		
+		# Remove duplicates
+		my %dup;
+		@reserved = grep { !$dup{$_}++ } @reserved;
+	}
+	
+	my $chars	= join( '', map { quotemeta( $_ ) } @reserved );
+	$path		=~ s/[$chars]//g;
+	$path		= unifySpaces( $path );
+	
+	# Convert relative path to absolute path if needed
+	if ( !file_name_is_absolute( $path ) && $path =~ /\S/ ) {
+		$path = rel2abs( $path );
+	}
+	
+	# Canonical filter
+	return canonpath( $path );
+}
+
 # Relative storage directory
 sub storage {
 	my ( $path ) = @_;
@@ -283,7 +312,7 @@ sub storage {
 			die "Storage directory is empty";
 		}
 		
-		$dir = realpath( canonpath( $dir ) );
+		$dir = filterPath( $dir );
 		unless ( -d $dir && -r $dir && -w $dir ) {
 			die "Storage directory is not accessible";
 		}
