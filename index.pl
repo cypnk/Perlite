@@ -2048,11 +2048,10 @@ sub formatRow {
 	$header		//= 0;
 	
 	my $tag		= $header ? 'th' : 'td';
-	my $html	= '';
 	
 	# Split on pipe symbol, skipping escaped pipes '\|'
 	my @data	= split( /(?<!\\)\|/, $row );
-	$html		.= join( '', map { "<$tag>$_</$tag>" } @data );
+	my $html	= join( '', map { "<$tag>$_</$tag>" } @data );
 	
 	return "<tr>$html</tr>\n";
 }
@@ -2060,10 +2059,10 @@ sub formatRow {
 # Convert ASCII table to HTML
 sub formatTable {
 	my ( $table ) = @_;
-	my $html = "<table>\n";
+	my $html	= '';
 	
 	# Lines = Rows
-	my @rows = split( /\n/, $table );
+	my @rows	= split( /\n/, $table );
 	
 	# In header row, if true
 	my $first	= 1;
@@ -2076,15 +2075,13 @@ sub formatTable {
 		next if $row eq '' || $row =~ /^(\+|-)+$/;
 		
 		# First round is the header
-		unless ( $first ) {
-			$html	.= formatRow( $row, 1 );
-			$first	= 0;
-			next;
-		}
-		$html	.= formatRow( $row );
+		$html	.= formatRow( $row, $first );
+		next unless $first;
+		
+		$first	= 0;
 	}
 	
-	return $html . "</table>\n";
+	return "<table>$html</table>\n";
 }
 
 # Simple subset of Markdown formatting with embedded media extraction
@@ -2143,16 +2140,14 @@ sub markdown {
 		},
 		
 		# Headings
-		'\n([#=]{1,6})\s?(.*?)\s?\1?\n'
+		'(^|\n)(?<delim>[#=]{1,6})\s?(?<text>.*?)\s?\2?\n?' 
 		=> sub {
-			my $i = strsize( $1 );
-			return "<h$i>$2</h$i>";
-		},
-		
-		# Horizontal rule
-		'\n(\-|_|\+){5,}\n'
-		=> sub {
-			return '<hr />';
+			my $level	= length( $+{delim} );	# Indent depth
+			my $text	= $+{text};		# Heading
+			
+			$text	=~ s/^\s+|\s+$//g;		# Trim
+			
+			return "<h$level>$text</h$level>";
 		},
 		
 		# Inline code
@@ -2170,7 +2165,13 @@ sub markdown {
 		# Tables
 		'(\+[-\+]+[\+\-]+\s*\|\s*.+?\n(?:\+[-\+]+[\+\-]+\s*\|\s*.+?\n)*)'
 		=> sub {
-			return formatTable( $1 );
+			return formatTable( $_[0] );
+		},
+		
+		# Horizontal rule
+		'\n(\-|_|\+){5,}\n'
+		=> sub {
+			return '<hr />';
 		},
 		
 		# References, Media, Embeds etc...
@@ -2214,9 +2215,13 @@ sub markdown {
 	);
 	
 	# Replace placeholders with formatted HTML
-	foreach my $match ( keys %patterns ) {
-		my $html = $patterns{$match};
-		$data =~ s/$match/$html->()/ge;
+	foreach my $pat ( keys %patterns ) {
+		my $subr	= $patterns{$pat};
+		if ( $pat =~ /<\w+>/ ) {
+			$data =~ s/$pat/sub { $subr->(%+) }/ge;
+		} else {
+			$data =~ s/$pat/sub { $subr->($&) }/ge;
+		}
 	}
 	
 	# Format lists
