@@ -203,23 +203,20 @@ sub pacify {
 # Convert all spaces to single character
 sub unifySpaces {
 	my ( $text, $rpl, $br ) = @_;
- 	
- 	$text	= pacify( $text );
-  	
-  	# Preserve line breaks?
-  	$br	//= 0;
-   	
-   	# Replacement space, defaults to ' '
- 	$rpl	//= ' ';
-  	
-  	if ( $br ) {
+	
+	$text	= pacify( $text );
+	
+	$br	//= 0;		# Preserve line breaks?
+	$rpl	//= ' ';	# Replacement space, defaults to ' '
+	
+	if ( $br ) {
 		$text	=~ s/[ \t\v\f]+/$rpl/;
- 	} else {
-  		$text	=~ s/[[:space:]]+/$rpl/;
-  	}
-  	
- 	chomp( $text );
- 	return $text;
+	} else {
+		$text	=~ s/[[:space:]]+/$rpl/;
+	}
+	
+	$text	=~ s/^\s+|\s+$//g;
+	return $text;
 }
 
 # Decode URL encoded strings
@@ -235,7 +232,7 @@ sub utfDecode {
 	$term	=~ s/\%([\da-fA-F]{2})/chr(hex($1))/ge;
 	$term	= Encode::decode_utf8( $term );
 	
-	chomp( $term );
+	$term	=~ s/^\s+|\s+$//g;
 	return $term;
 }
 
@@ -319,8 +316,8 @@ sub storage {
 	}
 	
 	$path	= pacify( $path );
- 	
- 	# Remove leading slashes and spaces, if any, and double dots
+	
+	# Remove leading slashes and spaces, if any, and double dots
 	$path	=~ s/^[\s\/]+//;
 	$path	=~ s/\.{2,}/\./g;
 	
@@ -524,7 +521,7 @@ sub mimeList {
 	# Mime data block
 	while ( $data =~ /^(?<mime>--\s*MIME\s*data:\s*\n.*?\n--\s*End\s*mime\s*?data\s*)/msgi ) {
 		my $find = $+{mime};
-		chomp( $find );
+		$find	=~ s/^\s+|\s+$//g;
 		
 		# Extension, type, and file signature(s)
 		while ( $find =~ /^(?<ext>\S+)\s+(?<type>\S+)\s+(?<sig>.*?)\s*$/mg ) {
@@ -842,8 +839,8 @@ sub rawRead {
 	my ( $br ) = @_;
 	my $out	= '';
 	
- 	$br //= "\n";
-  	
+	$br //= "\n";
+	
 	# https://stackoverflow.com/a/54816600
 	while ( sysread( STDIN, my $byte, 1 ) ) {
 		if ( $byte eq $br ) {
@@ -947,7 +944,8 @@ sub formData {
 				$parts{$key} = $value;
 			}
 		}
-		
+
+		# File uploads
 		if ( $parts{'content-disposition'} =~ /$pattern/ ) {
 			my $name	= $1;
 			my $fname	= $2;
@@ -967,16 +965,18 @@ sub formData {
 				close $tfh;
 				
 				push( @uploads, {
-					name		=> $name,
-					filename	=> $fname,
-					path		=> $tname,
-					content_type	=> $ptype
+					name		=> $name,	# Upload name
+					filename	=> $fname,	# Given file name
+					path		=> $tname,	# Path on disk
+					content_type	=> $ptype	# Upload content-type
 				} );
 				
 				next;
 			}
-			
-			$fields{$name} = $content;
+		
+		# Ordinary form data
+		} else {
+			$fields{$name} = $content;		
 		}
 	}
 	
@@ -1372,7 +1372,7 @@ sub httpCode {
 	
 		while ( $data =~ /$pattern/g ) {
 			my $find = $+{codes};
-			chomp( $find );
+			$find	=~ s/^\s+|\s+$//g;
 			
 			while ( $find =~ /^(?<code>\S+)\s+(?<message>.*?)\s*$/mg ) {
 				$http_codes{$+{code}}	= $+{message};
@@ -1440,7 +1440,7 @@ sub sendOrigin {
 	my ( $realm, $root ) = @_;
 	my %request	= getRequest();
 	
- 	$realm		//= $request{'realm'};
+	$realm		//= $request{'realm'};
 	$root		//= '/';
 	
 	my $http = ( $request{'secure'} ) ? 'http://' : 'https://';
@@ -1459,10 +1459,10 @@ sub sendOptions {
 	# Fail mode?, send 405 HTTP status code, default 200 OK
 	httpCode( $fail ? '405' : '200' );
 	print $fail ? 
- 		"Allow: $allow\n" : 
- 		"Access-Control-Allow-Methods: $allow\n" . 
-   		"Access-Control-Allow-Headers: Accept, Accept-Language, Content-Type\n" . 
-	 		"Access-Control-Expose-Headers: Content-Type, Cache-Control, Expires\n";
+		"Allow: $allow\n" : 
+		"Access-Control-Allow-Methods: $allow\n" . 
+		"Access-Control-Allow-Headers: Accept, Accept-Language, Content-Type\n" . 
+			"Access-Control-Expose-Headers: Content-Type, Cache-Control, Expires\n";
 	exit;
 }
 
@@ -2127,7 +2127,7 @@ sub markdown {
 			\[
 				(?<ref>[^\]\[\"\s]+)			# Reference or embed marker
 				(?:\"(?<title>([^\"]|\\\")+)\")?	# Alt or title
-				(?:\[(?<caption>.*?)\] )? 		# Caption(s), if present
+				(?:\[(?<caption>.*?)\] )?		# Caption(s), if present
 				(?:\((?<preview>.*?)\) )?		# Preview image, if present
 				(?<source>.*?)				# Source URL or note
 			\]
@@ -2140,7 +2140,7 @@ sub markdown {
 			my $caption	= $+{caption}	// '';
 			my $preview	= $+{preview}	// '';
 			
-			chomp( $ref );
+			$ref		=~ s/^\s+|\s+$//g;
 			for ( $ref ) {
 				# TODO: Process footnotes
 				/ref|footnote/ and do { 
@@ -2377,7 +2377,7 @@ sub updateLogin {
 sub route() {
 	my %request	= getRequest();
 	
-	my $verb 	= $request{'verb'};
+	my $verb	= $request{'verb'};
 	my $realm	= $request{'realm'};
 	
 	# Begin router
@@ -2385,8 +2385,9 @@ sub route() {
 		foreach my $path ( @{$path_map{$verb}} ) {
 		
 			# Cleaned route path
-			chomp( my $route = $path->{path} );
-			$route = '^/' . $route . '/?$';
+			my $route	= $path->{path};
+			$route		=~ s/^\s+|\s+$//g;
+			$route		= '^/' . $route . '/?$';
 			
 			# Replace URL routing placeholders
 			$route =~ s/$_/$markers{$_}/g for keys %markers;
