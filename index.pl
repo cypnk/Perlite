@@ -228,15 +228,16 @@ sub unifySpaces {
 # Decode URL encoded strings
 sub utfDecode {
 	my ( $term ) = @_;
-	if ( $term eq '' ) {
-		return '';
-	}
+	return '' if !defined( $term ) || $term eq '';
 	
 	$term	= pacify( $term );
 	$term	=~ s/\.{2,}/\./g;
 	$term	=~ s/\+/ /g;
 	$term	=~ s/\%([\da-fA-F]{2})/chr(hex($1))/ge;
-	$term	= Encode::decode_utf8( $term );
+	
+	if ( Encode::is_utf8( $term ) ) {
+		$term	= Encode::decode_utf8( $term );
+	}
 	
 	trim( \$term );
 	return $term;
@@ -247,7 +248,10 @@ sub strsize {
 	my ( $str ) = @_;
 	
 	$str = pacify( $str );
-	return length( Encode::encode( 'UTF-8', $str ) );
+	if ( !Encode::is_utf8( $term ) ) {
+		$str	= Encode::encode( 'UTF-8', $str );
+	}
+	return length( $str );
 }
 
 # Find if text starts with given search needle
@@ -2073,7 +2077,7 @@ sub formatTable {
 	my $first	= 1;
 	
 	foreach my $row ( @rows ) {
-		trim ( \$row );
+		trim( \$row );
 		
 		# Skip empty rows or lines with just separator
 		next if $row eq '' || $row =~ /^(\+|-)+$/;
@@ -2094,8 +2098,8 @@ sub escapeCode {
 	
 	return '' if !defined( $code ) || $code eq ''; 
 	
-	if ( !is_utf8( $code ) ) {
-		$code = decode( 'UTF-8', $code );
+	if ( !Encode::is_utf8( $code ) ) {
+		$code = Encode::decode( 'UTF-8', $code );
 	}
 	
 	# Double esacped ampersand workaround
