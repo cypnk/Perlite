@@ -187,6 +187,12 @@ our %sec_headers = (
 
 
 
+# Trim leading and trailing space 
+sub trim {
+	my ( $txt ) = @_;
+	$$txt	=~ s/^\s+|\s+$//g;
+}
+
 # Usable text content
 sub pacify {
 	my ( $term ) = @_;
@@ -215,7 +221,7 @@ sub unifySpaces {
 		$text	=~ s/[[:space:]]+/$rpl/;
 	}
 	
-	$text	=~ s/^\s+|\s+$//g;
+	trim( \$text );
 	return $text;
 }
 
@@ -232,7 +238,7 @@ sub utfDecode {
 	$term	=~ s/\%([\da-fA-F]{2})/chr(hex($1))/ge;
 	$term	= Encode::decode_utf8( $term );
 	
-	$term	=~ s/^\s+|\s+$//g;
+	trim( \$term );
 	return $term;
 }
 
@@ -521,7 +527,7 @@ sub mimeList {
 	# Mime data block
 	while ( $data =~ /^(?<mime>--\s*MIME\s*data:\s*\n.*?\n--\s*End\s*mime\s*?data\s*)/msgi ) {
 		my $find = $+{mime};
-		$find	=~ s/^\s+|\s+$//g;
+		trim( \$find );
 		
 		# Extension, type, and file signature(s)
 		while ( $find =~ /^(?<ext>\S+)\s+(?<type>\S+)\s+(?<sig>.*?)\s*$/mg ) {
@@ -932,8 +938,7 @@ sub formData {
 			
 			my ( $key, $value ) = ( lc( $1 ), $2 );
 			
-			# Trim
-			$value =~ s/^\s+|\s+$//g;
+			trim( \$value );
 			
 			# Duplicate headers?
 			if ( exists( $parts{$key} ) ) {
@@ -1372,7 +1377,7 @@ sub httpCode {
 	
 		while ( $data =~ /$pattern/g ) {
 			my $find = $+{codes};
-			$find	=~ s/^\s+|\s+$//g;
+			trim( \$find );
 			
 			while ( $find =~ /^(?<code>\S+)\s+(?<message>.*?)\s*$/mg ) {
 				$http_codes{$+{code}}	= $+{message};
@@ -2068,8 +2073,7 @@ sub formatTable {
 	my $first	= 1;
 	
 	foreach my $row ( @rows ) {
-		# Trim
-		$row	=~ s/^\s+|\s+$//g;
+		trim ( \$row );
 		
 		# Skip empty rows or lines with just separator
 		next if $row eq '' || $row =~ /^(\+|-)+$/;
@@ -2084,9 +2088,39 @@ sub formatTable {
 	return "<table>$html</table>\n";
 }
 
+# Format code to HTML
+sub escapeCode {
+	my ( $code ) = @_;
+	
+	return '' if !defined( $code ) || $code eq ''; 
+	
+	if ( !is_utf8( $code ) ) {
+		$code = decode( 'UTF-8', $code );
+	}
+	
+	# Double esacped ampersand workaround
+	$code =~ s/&(?!(amp|lt|gt|quot|apos);)/&amp;/g; 
+	
+	$code =~ s/</&lt;/g;
+	$code =~ s/>/&gt;/g;
+	$code =~ s/"/&quot;/g;
+	$code =~ s/'/&apos;/g;
+	$code =~ s/\\/&#92;/g;
+	
+	$code =~ s/([^\x00-\x7F])/sprintf("&#x%X;", ord($1))/ge;
+	trim( \$code );
+	
+	return $code;
+}
+
 # Simple subset of Markdown formatting with embedded media extraction
 sub markdown {
 	my ( $data ) = @_;
+	
+	return '' if !defined( $data ) || $data eq ''; 
+	
+	trim( \$data );
+	return '' if $data eq '';
 	
 	state %patterns = (
 		# Links, Images
@@ -2145,22 +2179,23 @@ sub markdown {
 			my $level	= length( $+{delim} );	# Indent depth
 			my $text	= $+{text};		# Heading
 			
-			$text	=~ s/^\s+|\s+$//g;		# Trim
-			
+			trim( \$text );
 			return "<h$level>$text</h$level>";
 		},
 		
 		# Inline code
-		'\s`([^`]*)`\s' 
+		'`(?<code>[^`]*)`' 
 		=> sub {
-			return "<code>$1<\/code>";
+			my $code = escapeCode( $+{code} );
+			return "<code>$code</code>";
 		},
 		
 		# Multi-line code
-		'\n```(.*?)```\n?'
+		'^|\n```(?<code>.*?)```'
 		=> sub {
-			return "<pre><code>$1<\/code><\/pre>";
-		}, 
+			my $code = escapeCode( $+{code} );
+			return "<pre><code>$code</code></pre>";
+		},
 		
 		# Tables
 		'(\+[-\+]+[\+\-]+\s*\|\s*.+?\n(?:\+[-\+]+[\+\-]+\s*\|\s*.+?\n)*)'
@@ -2192,7 +2227,7 @@ sub markdown {
 			my $caption	= $+{caption}	// '';
 			my $preview	= $+{preview}	// '';
 			
-			$ref		=~ s/^\s+|\s+$//g;
+			trim( \$ref );
 			for ( $ref ) {
 				# TODO: Process footnotes
 				/ref|footnote/ and do { 
@@ -2442,7 +2477,8 @@ sub route() {
 		
 			# Cleaned route path
 			my $route	= $path->{path};
-			$route		=~ s/^\s+|\s+$//g;
+			
+			trim( \$route );
 			$route		= '^/' . $route . '/?$';
 			
 			# Replace URL routing placeholders
