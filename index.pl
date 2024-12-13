@@ -248,8 +248,8 @@ sub strsize {
 	my ( $str ) = @_;
 	
 	$str = pacify( $str );
-	if ( !Encode::is_utf8( $term ) ) {
-		$str	= Encode::encode( 'UTF-8', $str );
+	if ( !Encode::is_utf8( $str ) ) {
+		$str = Encode::encode( 'UTF-8', $str );
 	}
 	return length( $str );
 }
@@ -257,16 +257,12 @@ sub strsize {
 # Find if text starts with given search needle
 sub textStartsWith {
 	my ( $text, $needle ) = @_;
+	
+	$needle	//= '';
+	$text	//= '';
+	
 	my $nl	= length( $needle );
-	my $tl	= length( $text );
-	
-	if ( !$nl || !$tl ) {
-		return 0;
-	}
-	
-	if ( $nl > $tl ) {
-		return 0;
-	}
+	return 0 if $nl > length($text);
 	
 	return substr( $text, 0, $nl ) eq $needle;
 }
@@ -384,33 +380,16 @@ sub fileLock {
 sub fileList {
 	my ( $dir, $fref, $pattern ) = @_;
 	unless ( -d $dir ) {
-		return undef;
+		return;
 	}
 	
-	my $dh;
-	unless ( opendir( $dh, $dir ) ) {
-		return undef;
-	}
+	$pattern	= 
+	quotemeta( $pattern ) unless ref( $pattern ) eq 'Regexp';
 	
-	while ( my $entry = readdir( $dh ) ) {
-		if ( $entry eq '.' or $entry eq '..' ) {
-			next;
-		}
-		
-		my $path = catfile( $dir, $entry );
-		
-		if ( -d $path ) {
-			# Subfolder
-			fileList( $path, @$fref, $pattern );
-		} else {
-			# File pattern match
-			if ( $entry =~ $pattern ) {
-				push( @$fref, $path );
-			}
-		}
-	}
-	
-	closedir( $dh );
+	find( sub { 
+		if ( $_ =~ $pattern, - $File::Find:name );
+		push( @fref, $File::Find::name );
+	}, $dir );
 }
 
 # Get file contents
