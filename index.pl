@@ -210,6 +210,8 @@ sub pacify {
 sub unifySpaces {
 	my ( $text, $rpl, $br ) = @_;
 	
+	return '' unless defined( $text ) && $text ne '';
+	
 	$text	= pacify( $text );
 	
 	$br	//= 0;		# Preserve line breaks?
@@ -302,6 +304,38 @@ sub filterPath {
 	
 	# Canonical filter
 	return canonpath( $path );
+}
+
+sub filterFileName {
+	my ( $fname, $ns ) = @_;
+	state @reserved = 
+	qw(
+		CON PRN AUX NUL COM1 COM2 COM3 COM4 COM5 COM6 COM7 COM8 COM9 \
+		LPT1 LPT2 LPT3 LPT4 LPT5 LPT6 LPT7 LPT8 LPT9
+	);
+	
+	# Append to reserved list?
+	if ( ref($ns) eq 'ARRAY' && @{$ns} ) {
+		push( @reserved, @{$ns} );
+		
+		my %dup;
+		@reserved = grep { !$dup{$_}++ } @reserved;
+	}
+	
+	# Basic filtering
+	$fname = filterPath( $fname );
+	$fname =~ s/[\/\\]/_/g;
+	$fname =~ s/^./_/;
+	
+	# Reserved filtering
+	for my $res ( @reserved ) {
+		if ( $lc( $fname ) eq lc( $res ) ) {
+			$fname	= "_$fname";
+			last;
+		}
+	}
+	
+	return substr( $fname, 0, FILE_NAME_LIMIT );
 }
 
 # Relative storage directory
@@ -860,6 +894,7 @@ sub formData {
 	my $boundary;
 	if ( $ctype =~ /^multipart\/form-data;.*boundary=(?:"([^"]+)"|([^;]+))/ ) {
 		$boundary = $1 || $2;
+		$boundary = unifySpaces( $boundary );
 	} else {
 		return %data;
 	}
@@ -884,18 +919,12 @@ sub formData {
 	}
 	
 	# Content-Length vs actual sent mismatch?
-	if ( $bytes != $clen ) {
-		# TODO: Send error
-		return %data;
-	}
+	return ( error => "Boundary overflow: expected $clen, got $bytes" ) 
+		if $bytes != $clen;
 	
-	my @segs	= split( /--\Q$boundary\E/, $sent );
-	if ( @segs < 2 ) {
-		return %data;
-	}
-	
-	shift @segs;
-	pop @segs;
+	my @segs	= split( /--\Q$boundary\E(?!-)/, $sent );
+	shift @segs if @segs > 0;
+	pop @segs if @segs > 0; 
 	
 	my %fields	= ();
 	my @uploads	= [];
@@ -908,29 +937,39 @@ sub formData {
 	
 	foreach my $part ( @segs ) {
 		# Break by new lines
-		my ( $headers, $content ) = split( /\r?\n\r?\n/, $part, 2 );
+		my ( $headers, $content ) = split( /\r?\n\r?\n/, $part, 2 ) 
+			or return ( error=> "Header and content split failed" );
+		
+		if ( !defined( $headers ) || !defined( $content )) {
+			return ( 
+				error => "Malformed multipart data, missing headers or content" 
+			);
+		}
 		
 		# Parse headers
 		my %parts;
 		foreach my $line ( split( /\r?\n/, $headers ) ) {
 			# Skip malformed headers
 			next unless $line;
-			unless ( $line =~ /^(\S+):\s*(.*)/) {
-				next;
-			}
+			next unless $line =~ /^(\S+):\s*(.*)/;
 			
-			my ( $key, $value ) = ( lc( $1 ), $2 );
+			my ( $key, $value ) = ( lc( unifySpaces( $1, '-' ) ), $2 );
 			
 			trim( \$value );
 			
 			# Duplicate headers?
 			if ( exists( $parts{$key} ) ) {
-				# TODO: Complex values
-				#push( @{$parts{$key}}, $value );
+				if ( ref( $parts{$key} ) ne 'ARRAY' ) {
+					# Convert to array
+					$parts{$key} = [ $parts{$key}, $value ];
+					next;
+				}
+				
+				push( @{$parts{$key}}, $value );
 				next;
-			} else {
-				$parts{$key} = $value;
 			}
+			
+			$parts{$key} = $value;
 		}
 
 		# File uploads
@@ -941,31 +980,34 @@ sub formData {
 				$parts{'content-type'} // 
 				'application/octet-stream';
 			
-			# Intercept upload
-			if ( defined $fname ) {
-				my ( $tfh, $tname ) = tempfile();
-				# Temp file failed?
-				unless ( $tfh ) {
-					return %data;
-				}
-				
-				print $tfh $content;
-				close $tfh;
-				
-				push( @uploads, {
-					name		=> $name,	# Upload name
-					filename	=> $fname,	# Given file name
-					path		=> $tname,	# Path on disk
-					content_type	=> $ptype	# Upload content-type
-				} );
-				
+			if ( !defined( $fname ) || !defined( $name ) ) {
 				next;
 			}
+			
+			$fname	= filterFileName( $fname );
+			$name	= filterFileName( $name );
+			
+			my ( $tfh, $tname ) = tempfile();
+			
+			# Temp file failed?
+			return ( error => "Temp file creation error" ) unless $tfh;
+			
+			print $tfh $content;
+			close $tfh;
+			
+			push( @uploads, {
+				name		=> $name,	# Upload name
+				filename	=> $fname,	# Given file name
+				path		=> $tname,	# Path on disk
+				content_type	=> $ptype	# Upload content-type
+			} );
+			
+			# Done with upload file
+			next;
+		}
 		
 		# Ordinary form data
-		} else {
-			$fields{$name} = $content;		
-		}
+		$fields{$name} = $content;
 	}
 	
 	$data{'fields'} = \%fields;
