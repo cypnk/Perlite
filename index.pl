@@ -364,6 +364,22 @@ sub storage {
 	return catfile( $dir, $path );
 }
 
+# Rename duplicate files until the filename doesn't conflict
+sub dupRename {
+	my ( $dir, $fname, $path ) = @_;
+	
+	my ( $base, $ext ) = fileparse( $fname, qr/\.[^.]*/ );
+	my $i	= 1;
+	
+	# Keep modifying until file name doesn't exist
+	while ( -e $path ) {
+		$path	= catfile( $dir, "${base} ($i)$ext" );
+                $i++;
+	}
+	
+	return $path;
+}
+
 # File lock/unlock helper
 sub fileLock {
 	my ( $fname, $ltype ) = @_;
@@ -874,21 +890,176 @@ sub rawRead {
 	}
 }
 
+# Temporary storage for incoming form data
+sub formDataStream {
+	my ( $tfname, $clen, $err ) = @_;
+	
+	my $chunk;
+	my $bytes		= 0;
+	
+	my ( $tfh, $tfn )	= 
+	tempfile(
+		DIR	=> storage( 'uploads' ), 
+		SUFFIX	=> '.tmp' 
+	);
+	
+	if ( !defined( $tfh ) ) {
+		$$err = "Failed to create a temp file for form data";
+		return undef;
+	}
+	
+	$$tfname = $tfn;
+	
+	while ( $bytes < $clen ) {
+		# Reset chunk
+		$chunk		= '';
+		my $read	= sysread( STDIN, $chunk, $clen - $bytes );
+		
+		if ( !defined( $read ) ) {
+			$$err = "Error reading input data";
+			return undef;
+		}
+		
+		print $tfh $chunk;
+		$bytes	+= $read;
+	}
+	
+	# Recheck boundary size
+	if ( $bytes != $clen ) {
+		$$err = "Boundary overflow: expected $clen, got $bytes";
+		return undef;
+	}
+
+	# Reset seek to beginning of file
+	seek( $tfh, 0, 0 ) or do {
+		$$err = "Failed to reset seek position to beginning of temp file";
+		return undef;
+	}
+	
+	return $tfh;
+}
+
+# Process form data boundary segments
+sub formDataSegment {
+	my ( $buffer, $boundary, $err, $fields, $uploads ) = @_;
+	
+	# Split the segment by boundary
+	my @segs = split(/--\Q$boundary\E(?!-)/, $buffer );
+	shift @segs if @segs > 0;
+	pop @segs if @segs && $segs[-1] eq '';
+	
+	my $pattern	= 
+	qr/
+		form-data;\s?					# Marker
+		name="([^"]+)"(?:;\s?filename="([^"]+)")?	# Labeled names
+	/ix;
+	
+	foreach my $part ( @segs ) {
+		
+		# Break by new lines
+		my ( $headers, $content ) = split(/\r?\n\r?\n/, $part, 2 ) or do  {
+			$$err = "Header and content split failed";
+			return undef;
+		}
+		
+		if ( 
+			!defined( $headers )	|| 
+			!defined( $content )	|| 
+			$content =~ /^\s*$/ 
+		) {
+			$$err = "Malformed multipart data, missing headers or content";
+			return undef;
+		}
+		
+		# Parse headers
+		my %parts;
+		foreach my $line ( split( /\r?\n/, $headers ) ) {
+			next unless $line;
+			next unless $line =~ /^(\S+):\s*(.*)/;
+			
+			my ( $key, $value ) = ( lc( unifySpaces( $1, '-' ) ), $2 );
+			trim( \$value );
+			
+			if ( exists( $parts{$key} ) ) {
+				if ( ref( $parts{$key} ) ne 'ARRAY' ) {
+   					# Convert to array
+					$parts{$key} = [$parts{$key}, $value];
+				} else {
+					push( @{$parts{$key}}, $value );
+				}
+			} else {
+				$parts{$key} = $value;
+			}
+		}
+		
+		# File uploads
+		if ( $parts{'content-disposition'} =~ /$pattern/ ) {
+			my ( $name, $fname )	= ( $1, $2 );
+			
+			if ( !defined( $fname ) || !defined( $name ) ) {
+				next;
+			}
+			
+			my $ptype	= 
+			$parts{'content-type'} // 'application/octet-stream';
+			
+			$fname		= filterFileName( $fname );
+			$name		= filterFileName( $name );
+			
+			my ( $tfh, $tname ) = tempfile();
+			
+			# Temp file failed?
+			if ( !$tfh ) {
+				$$err = "Temp file creation error for file upload";
+				return undef;
+			}
+			
+			print $tfh $content;
+			close $tfh;
+			
+			my $dir		= storage( UPLOADS );
+			my $fpath	= catfile( $dir, $fname );
+			
+			# Find conflict-free file name
+			$fpath		= dupRename( $dir, $fname, $fpath );
+			
+			if ( !move( $tname, $fpath ) ) {
+				$$err = "Error moving temp upload file $!";
+				return undef;
+			}
+			
+			push( @{$uploads}, {
+				name		=> $name,
+				filename	=> $fname,
+				path		=> $fpath,
+				content_type	=> $ptype
+			} );
+			
+			# Done with upload file
+			next;
+		}
+		
+		# Ordinary form data
+		my $name = $parts{'name'};
+		$fields->{$name} = $content;
+	}
+}
+
 # Sent binary data
 sub formData {
-	state %data	= ();
+	state %data = ();
 	
 	if ( keys %data ) {
 		return %data;
 	}
 	
 	my %request_headers	= requestHeaders();
-	my $clen		= $request_headers{'content_length'}	// 0;
+	my $clen		= $request_headers{'content_length'} // 0;
 	if ( !$clen ) {
 		return %data;
 	}
 	
-	my $ctype		= $request_headers{'content_type'}	// '';
+	my $ctype		= $request_headers{'content_type'} // '';
 	
 	# Check multipart boundary
 	my $boundary;
@@ -899,118 +1070,41 @@ sub formData {
 		return %data;
 	}
 	
-	# TODO: Get tempfile for buffered reading for large content lengths
-	
-	my $chunk;
-	my $bytes	= 0;
-	my $sent	= '';
-	
-	while ( $bytes < $clen ) {
-		$chunk		= '';
-		my $read	= sysread( STDIN, $chunk, $clen - $bytes );
-		
-		# TODO: Send error
-		if ( !defined $read ) {
-			return %data;
-		}
-		
-		$sent	.= $chunk;
-		$bytes	+= $read;
+	my $err			= '';
+	my $tfname;
+	my $temp_fh		= formDataStream( $tfname, $clen, $err );
+	if ( $err ne '' ) {
+		return ( error => $err );
 	}
 	
-	# Content-Length vs actual sent mismatch?
-	return ( error => "Boundary overflow: expected $clen, got $bytes" ) 
-		if $bytes != $clen;
+	my %fields = ();
+	my @uploads = [];
 	
-	my @segs	= split( /--\Q$boundary\E(?!-)/, $sent );
-	shift @segs if @segs > 0;
-	pop @segs if @segs > 0; 
-	
-	my %fields	= ();
-	my @uploads	= [];
-	
-	my $pattern	= 
-	qr/
-		form-data;\s?					# Marker
-		name="([^"]+)"(?:;\s?filename="([^"]+)")?	# Labeled names
-	/ix;
-	
-	foreach my $part ( @segs ) {
-		# Break by new lines
-		my ( $headers, $content ) = split( /\r?\n\r?\n/, $part, 2 ) 
-			or return ( error=> "Header and content split failed" );
-		
-		if ( !defined( $headers ) || !defined( $content )) {
-			return ( 
-				error => "Malformed multipart data, missing headers or content" 
-			);
-		}
-		
-		# Parse headers
-		my %parts;
-		foreach my $line ( split( /\r?\n/, $headers ) ) {
-			# Skip malformed headers
-			next unless $line;
-			next unless $line =~ /^(\S+):\s*(.*)/;
-			
-			my ( $key, $value ) = ( lc( unifySpaces( $1, '-' ) ), $2 );
-			
-			trim( \$value );
-			
-			# Duplicate headers?
-			if ( exists( $parts{$key} ) ) {
-				if ( ref( $parts{$key} ) ne 'ARRAY' ) {
-					# Convert to array
-					$parts{$key} = [ $parts{$key}, $value ];
-					next;
-				}
-				
-				push( @{$parts{$key}}, $value );
-				next;
-			}
-			
-			$parts{$key} = $value;
-		}
+	# Process the file content in chunks
+	my $buffer = '';
+	while ( my $line = <$temp_fh> ) {
+		$buffer .= $line;
 
-		# File uploads
-		if ( $parts{'content-disposition'} =~ /$pattern/ ) {
-			my $name	= $1;
-			my $fname	= $2;
-			my $ptype	= 
-				$parts{'content-type'} // 
-				'application/octet-stream';
+		# Once a boundary is reached, process the segment
+		if ( $buffer =~ /--\Q$boundary\E(?!-)/ ) {
 			
-			if ( !defined( $fname ) || !defined( $name ) ) {
-				next;
+			my $err;
+			formDataSegment( $buffer, $boundary, $err, \%fields, \@uploads );
+			if ( $err ne '' ) {
+				close $temp_fh;
+				unlink $tfname;
+				return ( error => $err );
 			}
 			
-			$fname	= filterFileName( $fname );
-			$name	= filterFileName( $name );
-			
-			my ( $tfh, $tname ) = tempfile();
-			
-			# Temp file failed?
-			return ( error => "Temp file creation error" ) unless $tfh;
-			
-			print $tfh $content;
-			close $tfh;
-			
-			push( @uploads, {
-				name		=> $name,	# Upload name
-				filename	=> $fname,	# Given file name
-				path		=> $tname,	# Path on disk
-				content_type	=> $ptype	# Upload content-type
-			} );
-			
-			# Done with upload file
-			next;
+			# Reset
+			$buffer = '';  
 		}
-		
-		# Ordinary form data
-		$fields{$name} = $content;
 	}
 	
-	$data{'fields'} = \%fields;
+	close $temp_fh;
+	unlink $tfname;
+	
+	$data{'fields'}	= \%fields;
 	$data{'files'}	= \@uploads;
 	
 	return %data;
