@@ -245,6 +245,27 @@ sub utfDecode {
 	return $term;
 }
 
+# Safely decode JSON to hash
+sub jsonDecode {
+	my ( $text )	= @_;
+	$text //= '';
+	
+	return {} if $text eq '';
+	
+	$text	= pacify( $text );
+	if ( !Encode::is_utf8( $text ) ) {
+		$text	= Encode::encode( 'UTF-8', $text );
+	}
+	
+	my $json;
+	eval {
+		$json	= decode_json( $text );
+	}
+	
+	return {} if ( $@ );
+	return $json;
+}
+
 # Length of given string
 sub strsize {
 	my ( $str ) = @_;
@@ -650,34 +671,26 @@ sub config {
 	my ( $realm )		= @_;
 	$realm			//= '';
 	
-	state %settings		= ();
-	state %rsettings	= ();
+	state %settings		= {};
+	state %rsettings	= {};
 	
-	if ( $realm ne '' ) {
-		if ( keys %rsettings ) {
-			return %rsettings;
-		}
+	if ( $realm eq '' ) {
+		return $settings if keys %settings;
 	} else {
-		if ( keys %settings ) {
-			return %settings;
-		}
+		return $rsettings if keys %rsettings;
 	}
 	
 	# Default config
 	my $conf		= fileRead( storage( CONFIG_FILE ) );
-	if ( $conf ne '' ) {
-		%settings		= decode_json( $conf );
-	} else {
-		return ();
-	}
+	%settings		= jsonDecode( $conf );
 	
 	
 	# Find realm specific config, if given, and merge to core
 	if ( $realm ne '' ) {
 		my $rconf	=  fileRead( catfile( $realm, CONFIG_FILE ) );
 		if ( $rconf ne '' ) {
-			my %nconfig	= decode_json( $rconf );
-			if ( keys %nconfig ) {
+			my %nconfig	= jsonDecode( $rconf );
+			if ( %nconfig ) {
 				%rsettings	= { %settings, %nconfig };
 			}
 		}
@@ -693,7 +706,7 @@ sub setting {
 	my ( $label, $realm )	= @_;
 	
 	my $config		= config( $realm );
-	return $config{$label} // '';
+	return $config->{$label} // '';
 }
 
 
@@ -729,10 +742,11 @@ sub requestHeaders {
 
 # Current host or server name/domain/ip address
 sub siteRealm {
-	my $realm	= lc( $ENV{SERVER_NAME} // '' ) =~ s/[^a-zA-Z0-9\.\-]//gr;
+	my $realm	= lc( $ENV{SERVER_NAME} // '' )
+	$realm		=~ s/[^a-zA-Z0-9\.\-]//gr;
 	
 	# End early on empty realm
-	if ( $realm eq '' ) { sendBadRequest(); }
+	sendBadRequest() if ( $realm eq '' );
 	
 	# Check for reqested realm, if it exists
 	my $dir = storage( catfile( 'sites', $realm ) );
@@ -749,12 +763,13 @@ sub isSecure {
 	my $scheme	= lc( $ENV{REQUEST_SCHEME} // 'http' );
 	
 	# Forwarded protocol, if set
-	my $frd		= 
+	my $frd		= lc(
 		$ENV{HTTP_X_FORWARDED_PROTO}	//
 		$ENV{HTTP_X_FORWARDED_PROTOCOL}	//
-		$ENV{HTTP_X_URL_SCHEME}		// 'http';
+		$ENV{HTTP_X_URL_SCHEME}		// 'http'
+	);
 	
-	return ( $scheme eq 'https' || $frd  =~ /https/i ) ? 1 : 0;
+	return ( $scheme eq 'https' || $frd  =~ /https/ );
 }
 
 # HTTP Client request
@@ -1292,7 +1307,7 @@ sub sessionStart {
 	# Restore session from cookie
 	sessionID( $id );
 	
-	my $values = decode_json( "$data" );
+	my $values = jsonDecode( "$data" );
 	foreach my $key ( keys %{$values} ) {
 		sessionWrite( $key, $values->{$key} );
 	}
