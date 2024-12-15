@@ -595,50 +595,36 @@ sub dateRfc {
 sub verifyDate {
 	my ( $stamp, $now ) = @_;
 	
-	# Current date
+	# Current date ( defaults to today )
 	$now	//= localtime->strftime('%Y-%m-%d');
 	
-	# Split stamp to components
-	my ( $year, $month, $day ) 
-			= $stamp =~ m{^(\d{4})/(\d{2})/(\d{2})$};
+	# Split stamp to components ( year, month, day )
+	my ( $year, $month, $day ) = $stamp =~ m{^(\d{4})/(\d{2})/(\d{2})$};
 	
-	$year	//= 0;
-	$month	//= 0;
-	$day	//= 0;
+	# Set checks
+	return 0 unless defined( $year ) && defined( $month ) && defined( $day );
 	
-	# Day range
-	if ( $day < 1 || $day > 31 ) {
-		return 0;
-	}
+	# Range checks for year, month, day
+	return 0 if  $year < 1900 ||  $month < 1 || $month > 12 || $day < 1 || $day > 31;
 	
-	# Month range
-	if ( $month < 1 || $month > 12 ) {
-		return 0;
-	}
-	
-	# Year minimum
-	if ( $year < 1900 ) {
-		return 0;
-	}
-	
-	# Prevent exceeding current date
-	
-	my ( $year_, $month_, $day_ ) 
-		= $now =~ m{^(\d{4})-(\d{2})-(\d{2})$};
+	# Current date ( year, month, day )
+	my ( $year_, $month_, $day_ ) = $now =~ m{^(\d{4})-(\d{2})-(\d{2})$};
 	
 	# Given year greater than current year?
 	if ( $year > $year_ ) {
 		return 0;
+	}
 	
 	# This year given?
-	} elsif ( $year == $year_ ) {
+	if ( $year == $year_ ) {
 		
 		# Greater than current month?
 		if ( $month > $month_ ) {
 			return 0;
-			
+		}
+		
 		# Greater than current day?
-		} elsif ( $month == $month_ && $day > $day_ ) {
+		if ( $month == $month_ && $day > $day_ ) {
 			return 0;
 		}
 	}
@@ -647,20 +633,14 @@ sub verifyDate {
 	my $is_leap = (
 		( $year % 4 == 0 && $year % 100 != 0 ) || 
 		( $year % 400 == 0 ) 
-	) ? 1 : 0;
+	);
 	
 	# Days in February, adjusting for leap years
-	my @dm		= ( 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 );
-	if ( $month == 2 && $is_leap ) {
-		$dm[1]	= 29 
-	}
+	my @dm	= ( 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 );
+	$dm[1]	= 29 if $month == 2 && $is_leap;
 	
 	# Maximum day for given month
-	my $m_day	= $dm[$month - 1];
-	
-	if ( $day > $m_day ) {
-		return 0;
-	}
+	return 0 if $day > $dm[$month - 1];
 	
 	return 1;
 }
