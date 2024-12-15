@@ -1122,13 +1122,11 @@ sub formData {
 sub getCookies {
 	state %sent;
 	
-	if ( keys %sent ) {
-		return %sent;
-	}
+	return %sent if keys %sent;
 	
-	my @items	= split( /;/, $ENV{'HTTP_COOKIE'} //= '' );
-	foreach ( @items ) {
-		my ( $k, $v )	= split( /=/, $_ );
+	my @items	= split( /;/, $ENV{'HTTP_COOKIE'} // '' );
+	foreach my $item ( @items ) {
+		my ( $k, $v )	= split( /=/, $item, 2 );
 		
 		# Clean prefixes, if any
 		$k		=~ s/^__(Host|Secure)\-//gi;
@@ -1154,18 +1152,15 @@ sub cookiePrefix {
 		'__Host-' : ( $request{'secure'} ? '__Secure-' : '' );
 }
 
-# Set a cookie with default parameters
-sub setCookie {
-	my ( $name, $value, $ttl ) = @_;
-	my $prefix	= cookiePrefix();
+# Set cookie values to user
+sub cookieHeader {
+	my ( $data, $ttl ) = @_;
+	
 	my %request	= getRequest();
-	
-	$ttl	//= COOKIE_EXP;
-	$ttl	= ( $ttl > 0 ) ? $ttl : ( ( $ttl == -1 ) ? 1 : 0 );
-	
+	my $prefix	= cookiePrefix();
 	my @values	= ( 
-		$prefix . "$name=$value",
-		'Path=' . COOKIE_PATH,
+		$prefix . $data,
+		'Path=' . ( COOKIE_PATH // '/' ),
 		'SameSite=Strict',
 		'HttpOnly',
 	);
@@ -1188,10 +1183,23 @@ sub setCookie {
 	print "Set-Cookie: $cookie\n";
 }
 
+# Set a cookie with default parameters
+sub setCookie {
+	my ( $name, $value, $ttl ) = @_;
+	
+	$ttl	//= COOKIE_EXP;
+	if ( $ttl < 0 ) {
+		$ttl = 0;
+	}
+	
+	cookieHeader( "$name=$value", $ttl );
+}
+
 # Erease already set cookie by name
 sub deleteCookie {
 	my ( $name ) = @_;
-	setCookie( $name, "", -1 );
+	
+	cookieHeader( "$name=", 0 );
 }
 
 
