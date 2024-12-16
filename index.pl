@@ -85,51 +85,51 @@ use constant {
 our %path_map = (
 	get	=> [	
 		# Homepage
-		{ path => "",				handler => \&viewHome },
+		{ path => "",				handler => "viewHome" },
 		
 		# Paginated index
-		{ path => "page:page",			handler => \&viewHome },
+		{ path => "page:page",			handler => "viewHome" },
 		
 		# Static file
-		{ path => "static/:file",		handler => \&viewStatic },
-		{ path => "static/:tree/:file",		handler => \&viewStatic },
+		{ path => "static/:file",		handler => "viewStatic" },
+		{ path => "static/:tree/:file",		handler => "viewStatic" },
 		
 		# Content creating/editing
-		{ path => "new",			handler => \&viewNewPost },
-		{ path => "edit/:tree",			handler => \&viewEditPost },
+		{ path => "new",			handler => "viewNewPost" },
+		{ path => "edit/:tree",			handler => "viewEditPost" },
 		
 		# Access pages
-		{ path => "login",			handler => \&viewLogin },
-		{ path => "register",			handler => \&viewRegister },
+		{ path => "login",			handler => "viewLogin" },
+		{ path => "register",			handler => "viewRegister" },
 		
 		# Segment page or section
-		{ path => ":tree",			handler => \&viewHome }
+		{ path => ":tree",			handler => "viewHome" }
 	],
 	
 	post	=> [
-		{ path => "new",			handler => \&doNewPost },
-		{ path => "edit",			handler => \&doEditPost },
+		{ path => "new",			handler => "doNewPost" },
+		{ path => "edit",			handler => "doEditPost" },
 		
-		{ path => "login",			handler => \&doLogin },
-		{ path => "register",			handler => \&doRegister }
+		{ path => "login",			handler => "doLogin" },
+		{ path => "register",			handler => "doRegister" }
 	],
 	
 	head	=> [	
 		# Homepage
-		{ path => "",				handler => \&viewHome },
-		{ path => "page:page",			handler => \&viewHome },
+		{ path => "",				handler => "viewHome" },
+		{ path => "page:page",			handler => "viewHome" },
 		
-		{ path => "static/:file",		handler => \&viewStatic },
-		{ path => "static/:tree/:file",		handler => \&viewStatic },
+		{ path => "static/:file",		handler => "viewStatic" },
+		{ path => "static/:tree/:file",		handler => "viewStatic" },
 		
-		{ path => "new",			handler => \&viewNewPost },
-		{ path => "edit/:tree",			handler => \&viewEditPost },
+		{ path => "new",			handler => "viewNewPost" },
+		{ path => "edit/:tree",			handler => "viewEditPost" },
 		
-		{ path => "login",			handler => \&viewLogin },
-		{ path => "register",			handler => \&viewRegister },
+		{ path => "login",			handler => "viewLogin" },
+		{ path => "register",			handler => "viewRegister" },
 		
 		# Segment page or section
-		{ path => ":tree",			handler => \&viewHome }
+		{ path => ":tree",			handler => "viewHome" }
 	]
 );
 
@@ -2587,43 +2587,53 @@ sub updateLogin {
 
 
 
-sub route() {
+# URL Router
+sub route {
 	my %request	= getRequest();
-	
 	my $verb	= $request{'verb'};
+	
+	# Unkown request method? 
+	sendOptions( 1 ) unless exists $path_map{$verb};
+	
 	my $realm	= $request{'realm'};
+	my $url		= $request{'url'};
+	
+	$url		= unifySpaces( $url );
+	
+	# Trim leading backslashes and escape any in the middle
+	$url		=~ s/\/$//;
+	$url		=~ s/\\/\\\\/g;
 	
 	# Begin router
-	if ( exists ( $path_map{$verb} ) ) {
-		foreach my $path ( @{$path_map{$verb}} ) {
-		
-			# Cleaned route path
-			my $route	= $path->{path};
-			
-			trim( \$route );
-			$route		= '^/' . $route . '/?$';
-			
-			# Replace URL routing placeholders
-			$route =~ s/$_/$markers{$_}/g for keys %markers;
-			
-			my $url = $request{'url'};
-			if ( $url =~ $route ) {
-				my %params = ();
-				if ( $url =~ $route ) {
-					%params = %+;
-				}
-				
-				$path->{handler}->( $realm, $verb, \%params );
-				exit;
-			}
+	foreach my $route ( @{$path_map{$verb}} ) {
+		unless ( $route->{path} && $route->{handler} ) {
+			next;
 		}
 		
-		# Nothing matched
-		sendNotFound( $realm, $verb );
+		my $path	= $route->{path};
+		my $handler	= $route->{handler};
+		
+		trim( \$path );
+		trim( \$handler );
+		
+		# Replace URL routing placeholders
+		$path =~ s/$_/\Q$markers{$_}\E/g for keys %markers;
+		
+		# Path matched?
+		if ( $url =~ m/^$path$/ ) {
+			my %params	= %+;
+			if ( defined( &{$handler} ) ) {
+				&{$handler}( $realm, $verb, %params );
+				exit;
+			}
+			
+			# Path matched, but no handler?
+			sendNotFound( $realm, $verb );
+		}
 	}
 	
-	# Unkown request method
-	sendOptions( 1 );
+	# Nothing matched
+	sendNotFound( $realm, $verb );
 }
 
 
