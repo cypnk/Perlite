@@ -290,6 +290,55 @@ sub textStartsWith {
 	return substr( $text, 0, $nl ) eq $needle;
 }
 
+# Hooks and extensions
+sub hook {
+	my ( $data )	= @_;
+	state	%handlers;
+	
+	# No event?
+	unless ( $data->{event} ) {
+		# Nothing to handle or register
+		return;
+	}
+	
+	# Hook event name
+	my $name	= $data->{event};
+	$name		= lc( unifySpaces( $name, '_' ) );
+	
+	# Register new handler?
+	if ( $data->{handler} ) {
+		# Safe handler name
+		my $handle	= unifySpaces( $data->{handler}, '' );
+		
+		# Check if subroutine exists
+		return unless defined( &{$handle} );
+		
+		# Initialize event
+		unless ( exists( $handlers{$name} ) ) {
+			$handlers{$name}	= [];
+		}
+		
+		push( @{$handlers{$name}}, $handle );
+		return;
+	}
+	
+	# Check event registry
+	return unless exists $handlers{$name};
+	
+	# Trigger event
+	for my $handler ( @{$handlers{$name}} ) {
+		
+		# Call with parameters if set
+		if ( exists( $data->{params} ) ) {
+			&{$handler}( %{$data->{params}} );
+			next;
+		}
+		
+		# Call without parameters
+		&{$handler}();
+	}
+}
+
 
 
 # Helpers
@@ -2828,6 +2877,12 @@ sub doEditPost {
 
 
 route();
+
+# End of script
+END {
+	hook( { event => 'perlite_shutdown' } );
+}
+
 
 
 
