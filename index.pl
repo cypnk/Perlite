@@ -993,6 +993,9 @@ sub formDataSegment {
 		form-data;\s?					# Marker
 		name="([^"]+)"(?:;\s?filename="([^"]+)")?	# Labeled names
 	/ix;
+
+	# File uploads and form handling temp file directory
+	my $dir		= storage( UPLOADS );
 	
 	foreach my $part ( @segs ) {
 		
@@ -1057,7 +1060,6 @@ sub formDataSegment {
 			print $tfh $content;
 			close $tfh;
 			
-			my $dir		= storage( UPLOADS );
 			my $fpath	= catfile( $dir, $fname );
 			
 			# Find conflict-free file name
@@ -1127,8 +1129,6 @@ sub formData {
 
 		# Once a boundary is reached, process the segment
 		if ( $buffer =~ /--\Q$boundary\E(?!-)/ ) {
-			
-			my $err;
 			formDataSegment( $buffer, $boundary, $err, \%fields, \@uploads );
 			if ( $err ne '' ) {
 				close $temp_fh;
