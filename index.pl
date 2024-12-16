@@ -292,18 +292,17 @@ sub textStartsWith {
 
 # Hooks and extensions
 sub hook {
-	my ( $data )	= @_;
+	my ( $data, $out )	= @_;
 	state	%handlers;
+	state	%output;
+	
+	$out		//= 0;
 	
 	# No event?
-	unless ( $data->{event} ) {
-		# Nothing to handle or register
-		return;
-	}
+	return {} unless ( $data->{event} );
 	
 	# Hook event name
-	my $name	= $data->{event};
-	$name		= lc( unifySpaces( $name, '_' ) );
+	my $name	= lc( unifySpaces( $data->{event}, '_' ) );
 	
 	# Register new handler?
 	if ( $data->{handler} ) {
@@ -311,31 +310,34 @@ sub hook {
 		my $handle	= unifySpaces( $data->{handler}, '' );
 		
 		# Check if subroutine exists
-		return unless defined( &{$handle} );
+		return unless can( $handle );
 		
 		# Initialize event
-		unless ( exists( $handlers{$name} ) ) {
-			$handlers{$name}	= [];
-		}
+		$handlers{$name} //= [];
 		
 		push( @{$handlers{$name}}, $handle );
-		return;
+		return {};
 	}
 	
 	# Check event registry
-	return unless exists $handlers{$name};
+	return {} unless exists $handlers{$name};
+	
+	# Get output only without executing event
+	if ( $out ) {
+		return $output{$name} // {};
+	}
+	
+	# Check params integrity
+	my $params	= 
+	( defined( $data->{params} && ref( $data->{params} ) eq 'HASH' ) ? 
+		%{$data->{params}} : {};
 	
 	# Trigger event
 	for my $handler ( @{$handlers{$name}} ) {
 		
-		# Call with parameters if set
-		if ( exists( $data->{params} ) ) {
-			&{$handler}( %{$data->{params}} );
-			next;
-		}
-		
-		# Call without parameters
-		&{$handler}();
+		# Execute handlers in order and store in output
+		$output{$name} = 
+		&{$handler}( $name, $output{$name} // {}, %params );
 	}
 }
 
