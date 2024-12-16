@@ -604,17 +604,13 @@ sub searchFiles {
 
 # Get raw __DATA__ content as text
 sub getRawData {
-	state $data = '';
-	if ( length ( $data ) ) {
-		return $data;
+	state $data;
+	
+	unless ( defined $data ) {
+		local $/ = undef;
+		$data = <DATA>;
 	}
 	
-	my @raw;
-	while ( my $line = <DATA> ) {
-		push ( @raw, $line );
-	}
-	
-	$data = join( '', @raw );
 	return $data;
 }
 
@@ -943,7 +939,7 @@ sub formDataStream {
 	
 	my ( $tfh, $tfn )	= 
 	tempfile(
-		DIR	=> storage( 'uploads' ), 
+		DIR	=> storage( UPLOADS ), 
 		SUFFIX	=> '.tmp' 
 	);
 	
