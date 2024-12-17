@@ -310,7 +310,7 @@ sub hook {
 		my $handle	= unifySpaces( $data->{handler}, '' );
 		
 		# Check if subroutine exists
-		return unless can( $handle );
+		return {} unless defined &{$handler} || ref( $handler ) eq 'CODE';
 		
 		# Initialize event
 		$handlers{$name} //= [];
