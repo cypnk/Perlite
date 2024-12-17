@@ -308,9 +308,17 @@ sub hook {
 	if ( $data->{handler} ) {
 		# Safe handler name
 		my $handle	= unifySpaces( $data->{handler}, '' );
+		my $is_code	= ref( $handler ) eq 'CODE';
 		
-		# Check if subroutine exists
-		return {} unless defined &{$handler} || ref( $handler ) eq 'CODE';
+		# Check if subroutine exists and doesn't return undef
+		return {} unless defined( &{$handler} ) || $is_code;
+		
+		# Limit hook to current package scope
+		my $pkg		= __PACKAGE__;
+		my $routine	= $is_code ? *{$handler}{NAME} : $handler;
+		unless ( $routine =~ /^${pkg}::/ ) {
+			return {};
+		}
 		
 		# Initialize event
 		$handlers{$name} //= [];
@@ -329,7 +337,7 @@ sub hook {
 	
 	# Check params integrity
 	my $params	= 
-	( defined( $data->{params} && ref( $data->{params} ) eq 'HASH' ) ? 
+	( defined( $data->{params} ) && ref( $data->{params} ) eq 'HASH' ) ? 
 		%{$data->{params}} : {};
 	
 	# Trigger event
