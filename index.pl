@@ -1997,6 +1997,58 @@ sub allowedTags {
 	return %whitelist;
 }
 
+# Wrap sent HTML with protected placeholders, optionally adding new tags
+sub startProtectedTags {
+	my ( $html, $ns )	= @_;
+	
+	# Base level protected tags
+	state @protected	= 
+	( 'p', 'ul', 'ol', 'pre', 'code', 'table', 'figure', 'figcaption', 
+		'address', 'details', 'span', 'embed', 'video', 'audio', 
+		'texteara', 'input' );
+	
+	if ( $ns ) {
+		@protected = @{ mergeArrayUnique( \@protected, $ns ) };
+	}
+	
+	my $tags	= join( '|', @protected );
+	
+	# Wrap protected tags in placeholders
+	$$html		=~ 
+	s|(<($tags)[^>]*>.*?</\2>)|__PROTECT__$1__ENDPROTECT__|gs;
+}
+
+# Restore protected tags
+sub endProtectedTags {
+	my ( $html )		= @_;
+	
+	$html		=~ s/__PROTECT__(.*?)__ENDPROTECT__/$1/g;
+}
+
+# Format code to HTML
+sub escapeCode {
+	my ( $code ) = @_;
+	
+	return '' if !defined( $code ) || $code eq ''; 
+	
+	if ( !Encode::is_utf8( $code ) ) {
+		$code = Encode::decode( 'UTF-8', $code );
+	}
+	
+	# Double esacped ampersand workaround
+	$code =~ s/&(?!(amp|lt|gt|quot|apos);)/&amp;/g; 
+	
+	$code =~ s/</&lt;/g;
+	$code =~ s/>/&gt;/g;
+	$code =~ s/"/&quot;/g;
+	$code =~ s/'/&apos;/g;
+	$code =~ s/\\/&#92;/g;
+	
+	$code =~ s/([^\x00-\x7F])/sprintf("&#x%X;", ord($1))/ge;
+	trim( \$code );
+	
+	return $code;
+}
 
 # TODO: Process footnotes
 sub footnote {
@@ -2130,110 +2182,127 @@ sub hostedEmbeds {
 	return '';
 }
 
-# HTML List formatting
-sub formatLists {
+# Close open list types
+sub formatCloseList {
+	my ( $lstack, $indent, $html, $ltype ) = @_;
+	while (
+		@$lstack				&&
+		$lstack->[-1]{indent} > $indent		&&
+		$lstack->[-1]{type} eq $ltype
+	) {
+		$$html .= "</$ltype>\n";
+		pop @$lstack;
+	}
+}
+
+# Create new list type
+sub formatNewList {
+	my ( $lstack, $html, $indent, $ltype ) = @_;
+	if (
+		!@$lstack				||
+		$lstack->[-1]{type} ne $ltype		||
+		$lstack->[-1]{indent} != $indent
+	) {
+		# Close the current list if needed
+		if ( @$lstack && $lstack->[-1]{type} eq $ltype ) {
+			$$html .= "</$ltype>\n"
+		}
+		
+		# Start a new list
+		$$html .= "<$ltype>\n";
+		push( @$lstack, { type => $ltype, indent => $indent } ) ;
+	}
+}
+
+# Finish closing any remaining open list types based on stack
+sub formatEndLists {
+	my ( $lstack, $html ) = @_;
+	while ( @$lstack ) {
+		$$html .= ( $lstack->[-1]{type} eq 'ul' ) ? '</ul>' : '</ol>';
+		pop @$lstack;
+	}
+}
+
+# Convert indented lists into HTML lists
+sub formatListBlock {
 	my ( $text ) = @_;
-	
+
 	my @lines = split /\n/, $text;
 	my $html = '';
-	my @listed;  # Stack to manage nested lists
+	my @lstack;  # Stack to manage nested lists
 	
 	foreach my $line ( @lines ) {
 		# Match ordered list items
-		if ( $line =~ /^(\s*)(\d+\.)\s+(.*)$/ ) {
-			my $indent = length( $1 );
-			my $content = $3;
+		if ( $line =~ /^(\s*)([\*\+\d\.]+)\s+(.*)$/ ) {
+			my $indent	= length( $1 );
+			my $marker	= $2;
+			my $content	= $3;
 			
-			# Close lists that are at the same or higher level of indentation
-			while ( 
-				@listed				&& 
-				$listed[-1]{indent} >= $indent	&& 
-				$listed[-1]{type} ne 'ol'
-			) {
-				$html .= '</ul>';
-				pop @listed;
+			# Unordered type
+			if ( $marker =~ /^[\*\+]/ ) {
+				# Close ordered list if needed
+				formatCloseList( \@lstack, \$html, $indent, 'ol');
+				
+				# Start a new unordered list if needed
+				formatNewList( \@lstack, \$html, $indent, 'ul');
+			
+			# Ordered type
+			} else {
+				# Close unordered list if needed
+				formatCloseList( \@lstack, \$html, $indent, 'ul');
+				
+				# Start a new ordered list if needed
+				formatNewList( \@lstack, \$html, $indent, 'ol');
 			}
-			
-			# Close unordered lists if changing to an ordered list
-			while (
-				@listed				&& 
-				$listed[-1]{type} eq 'ul'	&& 
-				$listed[-1]{indent} >= $indent
-			) {
-				$html .= '</ul>';
-				pop @listed;
-			}
-			
-			# Start a new ordered list if needed
-			if (
-				!@listed			|| 
-				$listed[-1]{type} ne 'ol'	|| 
-				$listed[-1]{indent} != $indent
-			) {
-				$html .= '</ol>' if @listed && $listed[-1]{type} eq 'ol';
-				$html .= '<ol>';
-				push @listed, { type => 'ol', indent => $indent };
-			}
-			
 			$html .= "<li>$content</li>\n";
-		
-		# Match unordered list items
-		} elsif ( $line =~ /^(\s*)[\*|\+]\s+(.*)$/ ) {
-			my $indent = length( $1 );
-			my $content = $2;
-			
-			# Close lists that are at the same or higher level of indentation
-			while (
-				@listed				&& 
-				$listed[-1]{indent} >= $indent	&& 
-				$listed[-1]{type} ne 'ul'
-			) {
-				$html .= '</ol>';
-				pop @listed;
-			}
-			
-			# Close ordered lists if changing to an unordered list
-			while (
-				@listed				&& 
-				$listed[-1]{type} eq 'ol'	&& 
-				$listed[-1]{indent} >= $indent
-			) {
-				$html .= '</ol>';
-				pop @listed;
-			}
-			
-			# Start a new unordered list if needed
-			if (
-				!@listed			|| 
-				$listed[-1]{type} ne 'ul'	|| 
-				$listed[-1]{indent} != $indent
-			) {
-				$html .= '</ul>' if @listed && $listed[-1]{type} eq 'ul';
-				$html .= '<ul>';
-				push @listed, { type => 'ul', indent => $indent };
-			}
-			
-			$html .= "<li>$content</li>\n";
-			
-		} else {
-			# Close any remaining open lists before adding non-list content
-			while ( @listed ) {
-				$html .= '</ul>' if $listed[-1]{type} eq 'ul';
-				$html .= '</ol>' if $listed[-1]{type} eq 'ol';
-				pop @listed;
-			}
-			$html .= "$line\n";
+			next;
 		}
+		
+		# Close any remaining open lists before adding non-list content
+		formatEndLists( \@lstack, $html );
+		$html .= "$line\n";
 	}
-	
-	# Close any remaining open lists
-	while ( @listed ) {
-		$html .= '</ul>' if $listed[-1]{type} eq 'ul';
-		$html .= '</ol>' if $listed[-1]{type} eq 'ol';
-		pop @listed;
-	}
-	
+
+	# Close any remaining open lists at the end
+	formatEndLists( \@lstack, \$html );
 	return $html;
+}
+
+# Convert plain text lists to HTML list blocks
+sub formatLists {
+	my ( $text )	= @_;
+	my @lists;
+	
+	# Prevent formatting inside existing block level tags
+	startProtectedTags( \$text );
+	
+	# Save a placeholder after finding each list block
+	$text	= 
+	s{
+		(__PROTECT__(.*?)__ENDPROTECT__)  # Match the protected blocks
+		|
+		([^\r\n]+)
+	}{
+		if ( defined $3 ) {
+			my $idx	= scalar( @lists );
+			push( @lists, { index => $idx, html => $3 } );
+			return "__STARTLIST__" . $idx . "__ENDLIST__";
+		} 
+		return $1;
+	} gex;
+	
+	for my $block ( @lists ) {
+		# Format the non-protected text block
+		$block->{html} = formatListBlock( $block->{html} );
+		
+		# Restore from placeholder
+		$text =~ 
+		s/__STARTLIST__$block->{index}__ENDLIST__/$block->{html}/g;
+	}
+	
+	# Restore other block level tags
+	endProtectedTags( \$text );
+	return $text;
 }
 
 # Table data row
@@ -2277,49 +2346,11 @@ sub formatTable {
 	return "<table>$html</table>\n";
 }
 
-# Format code to HTML
-sub escapeCode {
-	my ( $code ) = @_;
-	
-	return '' if !defined( $code ) || $code eq ''; 
-	
-	if ( !Encode::is_utf8( $code ) ) {
-		$code = Encode::decode( 'UTF-8', $code );
-	}
-	
-	# Double esacped ampersand workaround
-	$code =~ s/&(?!(amp|lt|gt|quot|apos);)/&amp;/g; 
-	
-	$code =~ s/</&lt;/g;
-	$code =~ s/>/&gt;/g;
-	$code =~ s/"/&quot;/g;
-	$code =~ s/'/&apos;/g;
-	$code =~ s/\\/&#92;/g;
-	
-	$code =~ s/([^\x00-\x7F])/sprintf("&#x%X;", ord($1))/ge;
-	trim( \$code );
-	
-	return $code;
-}
-
 # Wrap body text and line breaks in paragraphs
 sub makeParagraphs {
 	my ( $html, $ns )	= @_;
 	
-	# Base level protected tags
-	state @protected	= 
-	[ 'p', 'ul', 'pre', 'code', 'table', 'figure', 'figcaption', 'address', 
-		'details', 'span', 'embed', 'video', 'audio', 'texteara', 'input' ];
-	
-	if ( $ns ) {
-		$protected = @{ mergeArrayUnique( \@protected, $ns ) };
-	}
-	
-	my $tags	= join( '|', @protected );
-	
-	# Wrap protected tags in placeholders
-	$html		=~ 
-	s|(<($tags)[^>]*>.*?</\2>)|__PROTECT__$1__ENDPROTECT__|gs;
+	startProtectedTags( \$html, $ns );
 	
 	# Wrap paragraphs
 	$html		=~ 
@@ -2328,8 +2359,7 @@ sub makeParagraphs {
 	$html		= 
 	"<p>$html</p>" unless $html =~ /^<p>/ || $html =~ /__PROTECT__/;
 	
-	# Restore protected tags
-	$html		=~ s/__PROTECT__(.*?)__ENDPROTECT__/$1/g;
+	endProtectedTags( \$html );
 	return $html;
 }
 
