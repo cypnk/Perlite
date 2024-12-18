@@ -2022,7 +2022,7 @@ sub startProtectedTags {
 sub endProtectedTags {
 	my ( $html )		= @_;
 	
-	$html		=~ s/__PROTECT__(.*?)__ENDPROTECT__/$1/g;
+	$$html		=~ s/__PROTECT__(.*?)__ENDPROTECT__/$1/g;
 }
 
 # Format code to HTML
