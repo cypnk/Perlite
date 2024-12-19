@@ -20,6 +20,7 @@ use File::Spec::Functions qw( catfile canonpath file_name_is_absolute rel2abs );
 use Encode;
 use Digest::SHA qw( sha1_hex sha1_base64 sha256_hex sha384_hex sha384_base64 sha512_hex hmac_sha384 );
 use Fcntl qw( SEEK_SET O_WRONLY O_EXCL O_RDWR O_CREAT );
+use Errno qw( EEXIST );
 use Time::HiRes ();
 use Time::Piece;
 use JSON qw( decode_json encode_json );
@@ -56,6 +57,9 @@ use constant {
 	
 	# Password hashing rounds
 	HASH_ROUNDS		=> 10000,
+	
+	# Maximum file name length
+	FILE_NAME_LIMIT		=> 255,
 	
 	# File lock attempts
 	LOCK_TRIES		=> 4,
@@ -196,13 +200,13 @@ sub trim {
 # Usable text content
 sub pacify {
 	my ( $term ) = @_;
-	$term	=~ s/
-		^\s*			# Remove leading spaces
-		| [^[:print:]]		# Unprintable characters
-		| [\x{fdd0}-\x{fdef}]	# Invalid Unicode ranges
-		| [\p{Cs}\p{Cf}\p{Cn}]	# Surrogate/unassigned code points
-		| \s*$			# Trailing spaces
-	//gx;
+	$term =~ s/
+		^\s*				# Remove leading spaces
+		| [^[:print:]\x00-\x1f\x7f]	# Unprintable characters
+		| [\x{fdd0}-\x{fdef}]		# Invalid Unicode ranges
+		| [\p{Cs}\p{Cf}\p{Cn}]		# Surrogate or unassigned code points
+		| \s*$				# Trailing spaces
+	//gx; 
 	return $term;
 }
 
@@ -248,22 +252,20 @@ sub utfDecode {
 # Safely decode JSON to hash
 sub jsonDecode {
 	my ( $text )	= @_;
-	$text //= '';
-	
-	return {} if $text eq '';
+	return {} if !defined( $text ) || $text eq '';
 	
 	$text	= pacify( $text );
 	if ( !Encode::is_utf8( $text ) ) {
 		$text	= Encode::encode( 'UTF-8', $text );
 	}
 	
-	my $json;
+	my $out;
 	eval {
-		$json	= decode_json( $text );
-	}
+		$out = decode_json( $text );
+	};
 	
 	return {} if ( $@ );
-	return $json;
+	return $out;
 }
 
 # Length of given string
@@ -310,6 +312,7 @@ sub mergeArrayUnique {
 	return $items;
 }
 
+
 # Hooks and extensions
 sub hook {
 	my ( $data, $out )	= @_;
@@ -327,7 +330,7 @@ sub hook {
 	# Register new handler?
 	if ( $data->{handler} ) {
 		# Safe handler name
-		my $handle	= unifySpaces( $data->{handler}, '' );
+		my $handler	= unifySpaces( $data->{handler}, '' );
 		my $is_code	= ref( $handler ) eq 'CODE';
 		
 		# Check if subroutine exists and doesn't return undef
@@ -343,7 +346,7 @@ sub hook {
 		# Initialize event
 		$handlers{$name} //= [];
 		
-		push( @{$handlers{$name}}, $handle );
+		push( @{$handlers{$name}}, $handler );
 		return {};
 	}
 	
@@ -365,7 +368,7 @@ sub hook {
 		
 		# Execute handlers in order and store in output
 		$output{$name} = 
-		&{$handler}( $name, $output{$name} // {}, %params );
+		&{$handler}( $name, $output{$name} // {}, $params );
 	}
 }
 
@@ -385,7 +388,7 @@ sub filterPath {
 	
 	# New filter characters?
 	if ( $ns ) {
-		$reserved = @{ mergeArrayUnique( \@reserved, $ns ) };
+		@reserved = @{ mergeArrayUnique( \@reserved, $ns ) };
 	}
 	
 	my $chars	= join( '', map { quotemeta( $_ ) } @reserved );
@@ -411,7 +414,7 @@ sub filterFileName {
 	
 	# Append to reserved list?
 	if ( $ns ) {
-		$reserved = @{ mergeArrayUnique( \@reserved, $ns ) };
+		@reserved = @{ mergeArrayUnique( \@reserved, $ns ) };
 	}
 	
 	# Basic filtering
@@ -421,7 +424,7 @@ sub filterFileName {
 	
 	# Reserved filtering
 	for my $res ( @reserved ) {
-		if ( $lc( $fname ) eq lc( $res ) ) {
+		if ( lc( $fname ) eq lc( $res ) ) {
 			$fname	= "_$fname";
 			last;
 		}
@@ -528,9 +531,8 @@ sub fileList {
 	$pattern	= 
 	quotemeta( $pattern ) unless ref( $pattern ) eq 'Regexp';
 	
-	find( sub { 
-		if ( $_ =~ $pattern, - $File::Find:name );
-		push( @fref, $File::Find::name );
+	find( sub {
+		push( @{$fref}, $File::Find::name ) if ( $_ =~ $pattern );
 	}, $dir );
 }
 
@@ -733,6 +735,7 @@ sub verifyDate {
 	return 1;
 }
 
+
 # Load configuration by realm or core
 sub config {
 	my ( $realm )		= @_;
@@ -742,9 +745,9 @@ sub config {
 	state %rsettings	= {};
 	
 	if ( $realm eq '' ) {
-		return $settings if keys %settings;
+		return \%settings if keys %settings;
 	} else {
-		return $rsettings if keys %rsettings;
+		return \%rsettings if keys %rsettings;
 	}
 	
 	# Default config
@@ -762,10 +765,10 @@ sub config {
 			}
 		}
 		
-		return %rsettings;
+		return \%rsettings;
 	}
 	
-	return %settings;
+	return \%settings;
 }
 
 # Main configuration by realm or core
@@ -809,8 +812,8 @@ sub requestHeaders {
 
 # Current host or server name/domain/ip address
 sub siteRealm {
-	my $realm	= lc( $ENV{SERVER_NAME} // '' )
-	$realm		=~ s/[^a-zA-Z0-9\.\-]//gr;
+	my $realm	= lc( $ENV{SERVER_NAME} // '' );
+	$realm		=~ s/[^a-zA-Z0-9\.\-]//g;
 	
 	# End early on empty realm
 	sendBadRequest() if ( $realm eq '' );
@@ -870,9 +873,7 @@ sub getRequest {
 # Get requested file range, return range error if range was invalid
 sub requestRanges {
 	my $fr = $ENV{HTTP_RANGE} //= '';
-	if ( !$fr ) {
-		return ();
-	}
+	return () unless $fr;
 	
 	# Range is too long
 	if ( length( $fr ) > 100 ) {
@@ -884,7 +885,7 @@ sub requestRanges {
 	# Check range header
 	my $pattern	= qr/
 		bytes\s*=\s*				# Byte range heading
-		(?<ranges>(?:\d+-\d+(?:,\s*\d+-\d+)*))	# Comma delimeted ranges
+		(?<ranges>(?:\d+-\d+(?:,\s*\d+-\d+)*))	# Comma delimited ranges
 	/x;
 	
 	# Check range header
@@ -906,8 +907,7 @@ sub requestRanges {
 				# New range crosses prior start-end ranges?
 				if ( 
 					$start <= $ce	&& 
-					defined $end	&& 
-					$end >= $cs 
+					( defined( $end ) ? $end >= $cs : 1 )
 				) {
 					sendRangeError();
 				}
@@ -923,7 +923,7 @@ sub requestRanges {
 	}
 	
 	# Send filtered file ranges
-	return @ranges;
+	return \@ranges;
 }
 
 # URI / URL
@@ -996,7 +996,7 @@ sub formDataStream {
 	seek( $tfh, 0, 0 ) or do {
 		$$err = "Failed to reset seek position to beginning of temp file";
 		return undef;
-	}
+	};
 	
 	return $tfh;
 }
@@ -1120,7 +1120,7 @@ sub formData {
 	my %request_headers	= requestHeaders();
 	my $clen		= $request_headers{'content_length'} // 0;
 	if ( !$clen ) {
-		return %data;
+		return \%data;
 	}
 	
 	my $ctype		= $request_headers{'content_type'} // '';
@@ -1131,7 +1131,7 @@ sub formData {
 		$boundary = $1 || $2;
 		$boundary = unifySpaces( $boundary );
 	} else {
-		return %data;
+		return \%data;
 	}
 	
 	my $err			= '';
@@ -1169,7 +1169,7 @@ sub formData {
 	$data{'fields'}	= \%fields;
 	$data{'files'}	= \@uploads;
 	
-	return %data;
+	return \%data;
 }
 
 
@@ -2277,19 +2277,15 @@ sub formatLists {
 	startProtectedTags( \$text );
 	
 	# Save a placeholder after finding each list block
-	$text	= 
-	s{
-		(__PROTECT__(.*?)__ENDPROTECT__)  # Match the protected blocks
-		|
-		([^\r\n]+)
-	}{
-		if ( defined $3 ) {
-			my $idx	= scalar( @lists );
-			push( @lists, { index => $idx, html => $3 } );
-			return "__STARTLIST__" . $idx . "__ENDLIST__";
-		} 
-		return $1;
-	} gex;
+	while ( $text =~ /(__PROTECT__(.*?)__ENDPROTECT__)|([^\r\n]+)/g ) {
+		if ( !defined( $3 ) ) {
+			next;
+		}
+		
+		my $idx	= scalar( @lists );
+		push( @lists, { index => $idx, html => $3 } );
+		$text =~ s/$&/__STARTLIST__${idx}__ENDLIST__/;
+	}
 	
 	for my $block ( @lists ) {
 		# Format the non-protected text block
@@ -2354,7 +2350,7 @@ sub makeParagraphs {
 	
 	# Wrap paragraphs
 	$html		=~ 
-	s/(?<!__PROTECT__)\r?\n\s*\r?\n(?!__ENDPROTECT__)/</p><p>/g;
+	s/(?<!__PROTECT__)\r?\n\s*\r?\n(?!__ENDPROTECT__)/<\/p><p>/g;
 	
 	$html		= 
 	"<p>$html</p>" unless $html =~ /^<p>/ || $html =~ /__PROTECT__/;
