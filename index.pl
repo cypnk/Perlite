@@ -870,6 +870,40 @@ sub getRequest {
 	return %request;
 }
 
+# Accept header content types and their given priority
+sub getAcceptMedia {
+	state %types;
+	if ( keys %types ) {
+		return %types;
+	}
+	
+	my $header		= lc( $ENV{ACCEPT} // '' );
+	if ( $header eq '' ) {
+		return \%types;
+	}
+	
+	my @content_types	= split( /\s*,\s*/, $header );
+	
+	foreach my $type ( @content_types ) {
+		
+		if ( $type =~ /^([^;]+)(?:\s*;\s*q\s*=\s*(\d(\.\d+)?))?$/ ) {
+			my $content		= $1;
+			$content		=~ s/[^a-z0-9\/\+\-]+//g;
+			if ( $content eq '' ) {
+				next;
+			}
+			
+			my $q_value		= defined( $2 ) ? $2 : 1;
+			$q_value		= 1 if $q_value > 1;
+			$q_value		= 0 if $q_value < 0;
+			
+			$types{lc($content)}	= $q_value;
+		}
+	}
+	
+	return \%types;
+}
+
 # Get requested file range, return range error if range was invalid
 sub requestRanges {
 	my $fr = $ENV{HTTP_RANGE} //= '';
