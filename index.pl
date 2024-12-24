@@ -45,6 +45,12 @@ use constant {
 	
 	# Maximum number of posts per page
 	POST_LIMIT		=> 10,
+	
+	# Form validation nonce length
+	NONCE_SIZE		=> 64,
+	
+	# CAPTCHA field character length
+	CAPTCHA_SIZE		=> 8,
 
 	# File stream buffer size
 	BUFFER_SIZE		=> 10240,
@@ -1204,6 +1210,55 @@ sub formData {
 	$data{'files'}	= \@uploads;
 	
 	return \%data;
+}
+
+# Verify sent form data with nonce and CAPTCHA
+sub validateCaptcha {
+	my ( $snonce )	= @_;
+	
+	my %data	= formData();
+	if ( 
+		!defined( $data->{nonce} )	|| 
+		!defined( $data->{cnonce} )	|| 
+		!defined( $data->{captcha} )
+	) {
+		return 0;
+	}
+	
+	my ( $nonce, $cnonce, $captcha ) = ( 
+		$data->{nonce}, $data->{cnonce}, $data->{captcha} 
+	);
+
+	# Filter everything
+	$nonce		= unifySpaces( $nonce );
+	$cnonce		= unifySpaces( $cnonce );
+	$captcha	= unifySpaces( $captcha );
+	
+	if ( $snonce ne $nonce ) {
+		return 0;
+	}
+	
+	# Match fixed sizes
+	if  ( 
+		CAPTCHA_SIZE	!= length( $captcha )	|| 
+		NONCE_SIZE	!= length( $cnonce ) 
+	) {
+		return 0;
+	}
+	
+	# Create a hash with nonce and cnonce and widen character set
+	my $chk	= encode_base64( sha256( $nonce . $cnonce ), '' );
+	
+	# Remove confusing characters (must match client-side code)
+	$chk	=~ s/[0oO1liNzZ2m3=\/]//g;
+	
+	# Limit to CAPTCHA length (must match client-side code)
+	if ( lc( substr( $chk, 0, CAPTCHA_SIZE ) ) eq lc( $captcha ) ) {
+		return 1;
+	}
+	
+	# Default to fail
+	return 0;
 }
 
 
