@@ -11,7 +11,6 @@ use warnings;
 use utf8;
 
 # Standard modules in use
-
 use MIME::Base64;
 use File::Basename;
 use File::Copy;
@@ -30,10 +29,10 @@ use 5.32.1;
 
 
 
-
 # Default settings
 use constant {
-	
+	# Core defaults
+ 	
 	# Writable content location
 	STORAGE_DIR		=> "storage",
 	
@@ -51,7 +50,7 @@ use constant {
 	
 	# CAPTCHA field character length
 	CAPTCHA_SIZE		=> 8,
-
+	
 	# File stream buffer size
 	BUFFER_SIZE		=> 10240,
 	
@@ -318,7 +317,6 @@ sub mergeArrayUnique {
 	return $items;
 }
 
-
 # Hooks and extensions
 sub hook {
 	my ( $data, $out )	= @_;
@@ -538,6 +536,7 @@ sub fileList {
 	quotemeta( $pattern ) unless ref( $pattern ) eq 'Regexp';
 	
 	find( sub {
+		no warnings 'once';
 		push( @{$fref}, $File::Find::name ) if ( $_ =~ $pattern );
 	}, $dir );
 }
@@ -630,6 +629,15 @@ sub searchFiles {
 	}
 	
 	return @items;
+}
+
+# Filter number within min and max range, inclusive
+sub intRange {
+	my ( $val, $min, $max ) = @_;
+	my $out = sprintf( "%d", "$val" );
+ 	
+	return 
+	( $out > $max ) ? $max : ( ( $out < $min ) ? $min : $out );
 }
 
 # Get raw __DATA__ content as text
@@ -740,7 +748,6 @@ sub verifyDate {
 	
 	return 1;
 }
-
 
 # Load configuration by realm or core
 sub config {
@@ -1065,7 +1072,7 @@ sub formDataSegment {
 		my ( $headers, $content ) = split(/\r?\n\r?\n/, $part, 2 ) or do  {
 			$$err = "Header and content split failed";
 			return undef;
-		}
+		};
 		
 		if ( 
 			!defined( $headers )	|| 
@@ -1154,7 +1161,7 @@ sub formData {
 	state %data = ();
 	
 	if ( keys %data ) {
-		return %data;
+		return \%data;
 	}
 	
 	my %request_headers	= requestHeaders();
@@ -1627,7 +1634,7 @@ sub genFileHeaders {
 	my $fsize	= -s $rs;
 	my $mtime	= ( stat( $rs ) )[9];
 	my $lmod	= dateRfc( $mtime );
-	
+ 	
 	# Similar to Nginx ETag algo
 	my $etag		= 
 	sprintf( "%x-%x", 
@@ -2307,7 +2314,10 @@ sub formatNewList {
 sub formatEndLists {
 	my ( $lstack, $html ) = @_;
 	while ( @$lstack ) {
-		$$html .= ( $lstack->[-1]{type} eq 'ul' ) ? '</ul>' : '</ol>';
+		$$html .= 
+		( $lstack->[-1]{type} eq 'ul' ) ? '</ul>' : (
+			 ( $lstack->[-1]{type} eq 'ol' ) ? '</ol>' : '</dl>'
+		);
 		pop @$lstack;
 	}
 }
