@@ -1247,7 +1247,7 @@ sub validateCaptcha {
 	}
 	
 	# Create a hash with nonce and cnonce and widen character set
-	my $chk	= encode_base64( sha256( $nonce . $cnonce ), '' );
+	my $chk	= encode_base64( sha256_hex( $nonce . $cnonce ), '' );
 	
 	# Remove confusing characters (must match client-side code)
 	$chk	=~ s/[0oO1liNzZ2m3=\/]//g;
