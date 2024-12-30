@@ -1012,36 +1012,48 @@ sub formDataStream {
 		SUFFIX	=> '.tmp' 
 	);
 	
-	if ( !defined( $tfh ) ) {
+	unless( $tfh ) {
 		$$err = "Failed to create a temp file for form data";
 		return undef;
 	}
 	
 	$$tfname = $tfn;
+	local $| = 1;	# Temporarily disable output buffering
 	
 	while ( $bytes < $clen ) {
 		# Reset chunk
 		$chunk		= '';
 		my $read	= sysread( STDIN, $chunk, $clen - $bytes );
 		
-		if ( !defined( $read ) ) {
+		if ( !defined( $read ) || $read == 0 ) {
 			$$err = "Error reading input data";
+			close( $tfh );
+			unlink( $tfh );
 			return undef;
 		}
 		
-		print $tfh $chunk;
+		print $tfh $chunk or do {
+			$$err = "Error writing to form data temporary file: $!";
+			close( $tfh );
+			unlink( $tfh );
+			return undef;
+		};
 		$bytes	+= $read;
 	}
 	
 	# Recheck boundary size
 	if ( $bytes != $clen ) {
 		$$err = "Boundary overflow: expected $clen, got $bytes";
+		close( $tfh );
+		unlink( $tfh );
 		return undef;
 	}
 
 	# Reset seek to beginning of file
 	seek( $tfh, 0, 0 ) or do {
 		$$err = "Failed to reset seek position to beginning of temp file";
+		close( $tfh );
+		unlink( $tfh );
 		return undef;
 	};
 	
@@ -1121,23 +1133,29 @@ sub formDataSegment {
 			my ( $tfh, $tname ) = tempfile();
 			
 			# Temp file failed?
-			if ( !$tfh ) {
+			unless ( $tfh ) {
 				$$err = "Temp file creation error for file upload";
 				return undef;
 			}
 			
-			print $tfh $content;
-			close $tfh;
+			print $tfh $content or do {
+				$$err = "Error writing to form data temporary file: $!";
+				close( $tfh );
+				unlink( $tfh );
+				return undef;
+			};
+			close( $tfh );
 			
 			my $fpath	= catfile( $dir, $fname );
 			
 			# Find conflict-free file name
 			$fpath		= dupRename( $dir, $fname, $fpath );
 			
-			if ( !move( $tname, $fpath ) ) {
+			move( $tname, $fpath ) or do {
 				$$err = "Error moving temp upload file $!";
+				unlink( $tname );
 				return undef;
-			}
+			};
 			
 			push( @{$uploads}, {
 				name		=> $name,
@@ -1166,7 +1184,8 @@ sub formData {
 	
 	my %request_headers	= requestHeaders();
 	my $clen		= $request_headers{'content_length'} // 0;
-	if ( !$clen ) {
+	unless ( $clen && $clen =~ /^\d+$/ ) {
+		# Invalid content length
 		return \%data;
 	}
 	
@@ -1911,6 +1930,8 @@ sub streamRanged {
 	my $limit = 0;
 	my $buf;
 	my $chunk;
+	local $| = 1;	# Temporarily disable output buffering
+	
 	foreach my $range ( @{$ranges} ) {
 		my ( $start, $end ) = @{$range};
 		
@@ -1938,7 +1959,7 @@ sub streamRanged {
 			$chunk	= $limit > BUFFER_SIZE ? BUFFER_SIZE : $limit;
 			
 			my $ld	= read( $fh, $buf, $chunk );
-			if ( ! defined $ld || $ld == 0 ) {
+			if ( !defined( $ld ) || $ld == 0 ) {
 				# Something went wrong while reading 
 				# TODO : Log the error
 				close( $fh );
