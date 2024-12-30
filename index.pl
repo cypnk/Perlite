@@ -1020,10 +1020,15 @@ sub formDataStream {
 	$$tfname = $tfn;
 	local $| = 1;	# Temporarily disable output buffering
 	
+	my $chunk_size	= 65536;
+	
 	while ( $bytes < $clen ) {
+		my $remaining	= $clen - $bytes;	# Default chunk size to remaining bytes
+		my $read_size	= $remaining > $chunk_size ? $chunk_size : $remaining;
+		
 		# Reset chunk
 		$chunk		= '';
-		my $read	= sysread( STDIN, $chunk, $clen - $bytes );
+		my $read	= sysread( STDIN, $chunk, $read_size );
 		
 		if ( !defined( $read ) || $read == 0 ) {
 			$$err = "Error reading input data";
