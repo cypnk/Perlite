@@ -317,6 +317,50 @@ sub mergeArrayUnique {
 	return $items;
 }
 
+# Append hash value by incrementing numerical key index
+sub append {
+	my ( $ref, $key, $msg ) = @_;
+	
+	# Nothing to append
+	unless ( defined( $ref ) && ref( $ref ) eq 'HASH' ) {
+		return;
+	}
+	
+	if ( exists( $ref->{$key} ) ) {
+		# Increment indexed hash value
+		$ref->{$key}{ 
+			scalar( keys %$ref->{$key} ) + 1 
+		} = $msg;
+		return;
+	}
+	$ref->{$key} = { 1 => $msg };
+}
+
+# Error and message report formatting helper
+sub report {
+	my ( $msg )	= @_;
+	my ( $pkg, $fname, $line, $func ) = caller( 1 );
+	
+	$msg	||= 'Empty message';
+	$msg	= unifySpaces( $msg );
+	$fname	= filterPath( $fname );
+	
+	return 
+	"${msg} ( Package: ${pkg}, File: ${fname}, " . 
+		"Subroutine: ${func}, Line: ${line} )";
+}
+
+# Check if hash has an 'error' key set and is not 0
+sub hasErrors {
+	my ( $ref )	= @_;
+	
+	return 
+	defined( $ref->{error} ) && ( 
+		( $ref->{error} eq 'HASH' && keys %{ $ref->{error} } ) || 
+		$ref->{error}
+	) ? 1 : 0;
+}
+
 # Hooks and extensions
 sub hook {
 	my ( $data, $out )	= @_;
