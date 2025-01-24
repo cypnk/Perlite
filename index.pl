@@ -104,25 +104,6 @@ our %path_map = (
 	]
 );
 
-# URL routing placeholders
-our %markers = (
-	":all"		=> "(?<all>.+)",
-	':id'		=> "(?<id>[1-9][0-9]*)",
-	':page'		=> "(?<page>[1-9][0-9]*)",
-	':label'	=> "(?<label>[\\pL\\pN\\s_\\-]{1,30})",
-	":nonce"	=> "(?<nonce>[a-z0-9]{10,30})",
-	":token"	=> "(?<token>[a-z0-9\\+\\=\\-\\%]{10,255})",
-	":meta"		=> "(?<meta>[a-z0-9\\+\\=\\-\\%]{7,255})",
-	":tag"		=> "(?<tag>[\\pL\\pN\\s_\\,\\-]{1,30})",
-	":tags"		=> "(?<tags>[\\pL\\pN\\s_\\,\\-]{1,255})",
-	':year'		=> "(?<year>[2][0-9]{3})",
-	':month'	=> "(?<month>[0-3][0-9]{1})",
-	':day'		=> "(?<day>[0-9][0-9]{1})",
-	':slug'		=> "(?<slug>[\\pL\\-\\d]+)",
-	":tree"		=> "(?<tree>[\\pL\\/\\-_\\d\\s]{1,255})",
-	":file"		=> "(?<file>[\\pL_\\-\\d\\.\\s]{1,120})"
-);
-
 
 
 
@@ -3309,11 +3290,36 @@ sub updateLogin {
 
 # URL Router
 sub route {
+	my ( $name, $output, $params )	= @_;
+	
+	# $name, $output{$name} // {}, $params
+	
+	# URL routing placeholders
+	state %default_markers = (
+		":all"		=> "(?<all>.+)",
+		':id'		=> "(?<id>[1-9][0-9]*)",
+		':page'		=> "(?<page>[1-9][0-9]*)",
+		':label'	=> "(?<label>[\\pL\\pN\\s_\\-]{1,30})",
+		":nonce"	=> "(?<nonce>[a-z0-9]{10,30})",
+		":token"	=> "(?<token>[a-z0-9\\+\\=\\-\\%]{10,255})",
+		":meta"		=> "(?<meta>[a-z0-9\\+\\=\\-\\%]{7,255})",
+		":tag"		=> "(?<tag>[\\pL\\pN\\s_\\,\\-]{1,30})",
+		":tags"		=> "(?<tags>[\\pL\\pN\\s_\\,\\-]{1,255})",
+		':year'		=> "(?<year>[2][0-9]{3})",
+		':month'	=> "(?<month>[0-3][0-9]{1})",
+		':day'		=> "(?<day>[0-9][0-9]{1})",
+		':slug'		=> "(?<slug>[\\pL\\-\\d]+)",
+		":tree"		=> "(?<tree>[\\pL\\/\\-_\\d\\s]{1,255})",
+		":file"		=> "(?<file>[\\pL_\\-\\d\\.\\s]{1,120})"
+	);
+
 	my %request	= getRequest();
 	my $verb	= $request{'verb'};
 	
+	my %paths	= $params{paths} // %path_map;
+	
 	# Unkown request method? 
-	sendOptions( 1 ) unless exists $path_map{$verb};
+	sendOptions( 1 ) unless exists $paths{$verb};
 	
 	my $realm	= $request{'realm'};
 	my $url		= $request{'url'};
@@ -3324,8 +3330,11 @@ sub route {
 	$url		=~ s/\/$//;
 	$url		=~ s/\\/\\\\/g;
 	
+	# Custom URL markers
+	my %markers	= setting( 'route_markers', 'hash', \%default_markers );
+	
 	# Begin router
-	foreach my $route ( @{$path_map{$verb}} ) {
+	foreach my $route ( @{$paths{$verb}} ) {
 		unless ( $route->{path} && $route->{handler} ) {
 			next;
 		}
@@ -3341,9 +3350,10 @@ sub route {
 		
 		# Path matched?
 		if ( $url =~ m/^$path$/ ) {
-			my %params	= %+;
+			my %matches	= %+;
 			if ( defined( &{$handler} ) ) {
-				&{$handler}( $realm, $verb, %params );
+				# TODO: Convert handlers to hook events
+				&{$handler}( $realm, $verb, %matches );
 				exit;
 			}
 			
