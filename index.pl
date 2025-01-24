@@ -42,52 +42,14 @@ use constant {
 	# Uploaded file subfolder in storage
 	UPLOADS			=> "uploads",
 	
-	# Maximum number of posts per page
-	POST_LIMIT		=> 10,
-	
-	# Form validation nonce length
-	NONCE_SIZE		=> 64,
-	
-	# CAPTCHA field character length
-	CAPTCHA_SIZE		=> 8,
-	
-	# File stream buffer size
-	BUFFER_SIZE		=> 10240,
+	# Session storage fubfolder in storage
+	SESSION_DIR		=> "sessions",
 	
 	# Username and password storage file name
 	USER_FILE		=> "users.txt",
 	
 	# Username and given permissions
-	ROLE_FILE		=> "roles.txt",
-	
-	# Password hashing rounds
-	HASH_ROUNDS		=> 10000,
-	
-	# Maximum file name length
-	FILE_NAME_LIMIT		=> 255,
-	
-	# File lock attempts
-	LOCK_TRIES		=> 4,
-	
-	# Cookie defaults
-	
-	# Base expiration
-	COOKIE_EXP		=> 604800,
-	
-	# Base domain path
-	COOKIE_PATH		=> '/',
-	
-	
-	# Session defaults
-	
-	# Session storage fubfolder in storage
-	SESSION_DIR		=> "sessions",
-	
-	# Time before session cookie expires
-	SESSION_EXP		=> 1800,
-	
-	# Time between cleaning up old cookies
-	SESSION_GC		=> 3600
+	ROLE_FILE		=> "roles.txt"
 };
 
 # Request methods and path handler map
@@ -161,32 +123,169 @@ our %markers = (
 	":file"		=> "(?<file>[\\pL_\\-\\d\\.\\s]{1,120})"
 );
 
-# Content Security and Permissions Policy headers
-our %sec_headers = (			
-	'Content-Security-Policy'
-				=>
-		"default-src 'none'; base-uri 'self'; img-src *; font-src 'self'; " . 
-		"style-src 'self' 'unsafe-inline'; script-src 'self'; " . 
-		"form-action 'self'; media-src 'self'; connect-src 'self'; " . 
-		"worker-src 'self'; child-src 'self'; object-src 'none'; " . 
-		"frame-src 'self'; frame-ancestors 'self'",
-	
-	# These aren't usually necessary unless for a special web app
-	'Permissions-Policy'	=> 
-		"accelerometer=(none), camera=(none), geolocation=(none), "  . 
-		"fullscreen=(self), gyroscope=(none), magnetometer=(none), " . 
-		"microphone=(none), interest-cohort=(), payment=(none), usb=(none)",
-	
-	'Referrer-Policy'	=> "no-referrer strict-origin-when-cross-origin",
-	
-	'Strict-Transport-Security'
-				=> "max-age=31536000; includeSubDomains",
-	
-	'X-Content-Type-Options'=> "nosniff",
-	'X-Frame-Options'	=> "SAMEORIGIN",
-	'X-XSS-Protection'	=> "1; mode=block"
-);
 
+
+
+# Utilities
+
+
+
+
+# Formatted date time helper
+sub timstamp {
+	my @time	= localtime();
+	
+	return sprintf(
+		"%04d%02d%02d_%02d%02d%02d",
+		$time[5] + 1900,	# Year
+		$time[4] + 1,		# Month (1-based)
+		$time[3],		# Day
+		$time[2],		# Hour
+		$time[1],		# Minute
+		$time[0]		# Second
+	);
+}
+
+# Timestamp helper
+sub dateRfc {
+	my ( $stamp ) = @_;
+	
+	# Fallback to current time
+	$stamp = time() unless defined $stamp;
+	my $t = Time::Piece->strptime( "$stamp", '%s' );
+	
+	# RFC 2822
+	return $t->strftime( '%a, %d %b %Y %H:%M:%S %z' );
+}
+
+# Find if text starts with given search needle
+sub textStartsWith {
+	my ( $text, $needle ) = @_;
+	
+	$needle	//= '';
+	$text	//= '';
+	
+	my $nl	= length( $needle );
+	return 0 if $nl > length($text);
+	
+	return substr( $text, 0, $nl ) eq $needle;
+}
+
+# Merge arrays and return unique items
+sub mergeArrayUnique {
+	my ( $items, $nitems ) = @_;
+	
+	# Check for array or return as-is
+	unless ( ref( $items ) eq 'ARRAY' ) {
+		die "Invalid parameter type for mergeArrayUnique\n";
+	}
+	
+	if ( ref( $nitems ) eq 'ARRAY' && @{$nitems} ) {
+		push ( @{$items}, @{$nitems} );
+		
+		# Filter duplicates
+		my %dup;
+		@{$items} = grep { !$dup{$_}++ } @{$items};
+	}
+	
+	return $items;
+}
+
+# Filter number within min and max range, inclusive
+sub intRange {
+	my ( $val, $min, $max ) = @_;
+	my $out = sprintf( "%d", "$val" );
+ 	
+	return 
+	( $out > $max ) ? $max : ( ( $out < $min ) ? $min : $out );
+}
+
+# Get raw __DATA__ content as text
+sub getRawData {
+	state $data;
+	
+	unless ( defined $data ) {
+		local $/ = undef;
+		$data = <DATA>;
+	}
+	
+	return $data;
+}
+
+# Get allowed file extensions, content types, and file signatures ("magic numbers")
+sub mimeList { 
+	state %mime_list = ();
+	if ( keys %mime_list ) {
+		return %mime_list;
+	}
+	
+	my $data = getRawData();
+	
+	# Mime data block
+	while ( $data =~ /^(?<mime>--\s*MIME\s*data:\s*\n.*?\n--\s*End\s*mime\s*?data\s*)/msgi ) {
+		my $find = $+{mime};
+		trim( \$find );
+		
+		# Extension, type, and file signature(s)
+		while ( $find =~ /^(?<ext>\S+)\s+(?<type>\S+)\s+(?<sig>.*?)\s*$/mg ) {
+			my ( $ext, $type, $sig ) = ( $+{ext}, $+{type}, $+{sig} );
+			if ( ! defined( $type ) ) {
+				$type = 'application/octet-stream';
+			}
+			if ( ! defined( $sig ) ) {
+				$sig = '';
+			}
+			my @sig = split( /\s+/, $sig );
+			$mime_list{$ext} = { type => $type, sig => \@sig };
+		}
+	}
+	
+	return %mime_list;
+}
+
+# Append hash value by incrementing numerical key index
+sub append {
+	my ( $ref, $key, $msg ) = @_;
+	
+	# Nothing to append
+	unless ( defined( $ref ) && ref( $ref ) eq 'HASH' ) {
+		return;
+	}
+	
+	if ( exists( $ref->{$key} ) ) {
+		# Increment indexed hash value
+		$ref->{$key}{ 
+			scalar( keys %$ref->{$key} ) + 1 
+		} = $msg;
+		return;
+	}
+	$ref->{$key} = { 1 => $msg };
+}
+
+# Error and message report formatting helper
+sub report {
+	my ( $msg )	= @_;
+	my ( $pkg, $fname, $line, $func ) = caller( 1 );
+	
+	$msg	||= 'Empty message';
+	$msg	= unifySpaces( $msg );
+	$fname	= filterPath( $fname );
+	
+	return 
+	"${msg} ( Package: ${pkg}, File: ${fname}, " . 
+		"Subroutine: ${func}, Line: ${line} )";
+}
+
+# Check if hash has an 'error' key set and is not 0
+sub hasErrors {
+	my ( $ref )	= @_;
+	
+	return 
+	defined( $ref->{error} ) && ( 
+		( $ref->{error} eq 'HASH' && keys %{ $ref->{error} } ) || 
+		$ref->{error}
+	) ? 1 : 0;
+}
 
 
 
@@ -205,13 +304,13 @@ sub trim {
 # Usable text content
 sub pacify {
 	my ( $term ) = @_;
-	$term =~ s/
+	$term	=~ s/
 		^\s*				# Remove leading spaces
 		| [^[:print:]\x00-\x1f\x7f]	# Unprintable characters
 		| [\x{fdd0}-\x{fdef}]		# Invalid Unicode ranges
 		| [\p{Cs}\p{Cf}\p{Cn}]		# Surrogate or unassigned code points
 		| \s*$				# Trailing spaces
-	//gx; 
+	//gx;
 	return $term;
 }
 
@@ -258,6 +357,7 @@ sub utfDecode {
 sub jsonDecode {
 	my ( $text )	= @_;
 	return {} if !defined( $text ) || $text eq '';
+	return {} if length( $text ) < 2;
 	
 	$text	= pacify( $text );
 	if ( !Encode::is_utf8( $text ) ) {
@@ -284,81 +384,58 @@ sub strsize {
 	return length( $str );
 }
 
-# Find if text starts with given search needle
-sub textStartsWith {
-	my ( $text, $needle ) = @_;
+# Limit the date given to a maximum value of today
+sub verifyDate {
+	my ( $stamp, $now ) = @_;
 	
-	$needle	//= '';
-	$text	//= '';
+	# Current date ( defaults to today )
+	$now	//= localtime->strftime('%Y-%m-%d');
 	
-	my $nl	= length( $needle );
-	return 0 if $nl > length($text);
+	# Split stamp to components ( year, month, day )
+	my ( $year, $month, $day ) = $stamp =~ m{^(\d{4})/(\d{2})/(\d{2})$};
 	
-	return substr( $text, 0, $nl ) eq $needle;
-}
-
-# Merge arrays and return unique items
-sub mergeArrayUnique {
-	my ( $items, $nitems ) = @_;
+	# Set checks
+	return 0 unless defined( $year ) && defined( $month ) && defined( $day );
 	
-	# Check for array or return as-is
-	unless ( ref( $items ) eq 'ARRAY' ) {
-		die "Invalid parameter type for mergeArrayUnique\n";
+	# Range checks for year, month, day
+	return 0 if  $year < 1900 ||  $month < 1 || $month > 12 || $day < 1 || $day > 31;
+	
+	# Current date ( year, month, day )
+	my ( $year_, $month_, $day_ ) = $now =~ m{^(\d{4})-(\d{2})-(\d{2})$};
+	
+	# Given year greater than current year?
+	if ( $year > $year_ ) {
+		return 0;
 	}
 	
-	if ( ref( $nitems ) eq 'ARRAY' && @{$nitems} ) {
-		push ( @{$items}, @{$nitems} );
+	# This year given?
+	if ( $year == $year_ ) {
 		
-		# Filter duplicates
-		my %dup;
-		@{$items} = grep { !$dup{$_}++ } @{$items};
+		# Greater than current month?
+		if ( $month > $month_ ) {
+			return 0;
+		}
+		
+		# Greater than current day?
+		if ( $month == $month_ && $day > $day_ ) {
+			return 0;
+		}
 	}
 	
-	return $items;
-}
-
-# Append hash value by incrementing numerical key index
-sub append {
-	my ( $ref, $key, $msg ) = @_;
+	# Leap year?
+	my $is_leap = (
+		( $year % 4 == 0 && $year % 100 != 0 ) || 
+		( $year % 400 == 0 ) 
+	);
 	
-	# Nothing to append
-	unless ( defined( $ref ) && ref( $ref ) eq 'HASH' ) {
-		return;
-	}
+	# Days in February, adjusting for leap years
+	my @dm	= ( 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 );
+	$dm[1]	= 29 if $month == 2 && $is_leap;
 	
-	if ( exists( $ref->{$key} ) ) {
-		# Increment indexed hash value
-		$ref->{$key}{ 
-			scalar( keys %$ref->{$key} ) + 1 
-		} = $msg;
-		return;
-	}
-	$ref->{$key} = { 1 => $msg };
-}
-
-# Error and message report formatting helper
-sub report {
-	my ( $msg )	= @_;
-	my ( $pkg, $fname, $line, $func ) = caller( 1 );
+	# Maximum day for given month
+	return 0 if $day > $dm[$month - 1];
 	
-	$msg	||= 'Empty message';
-	$msg	= unifySpaces( $msg );
-	$fname	= filterPath( $fname );
-	
-	return 
-	"${msg} ( Package: ${pkg}, File: ${fname}, " . 
-		"Subroutine: ${func}, Line: ${line} )";
-}
-
-# Check if hash has an 'error' key set and is not 0
-sub hasErrors {
-	my ( $ref )	= @_;
-	
-	return 
-	defined( $ref->{error} ) && ( 
-		( $ref->{error} eq 'HASH' && keys %{ $ref->{error} } ) || 
-		$ref->{error}
-	) ? 1 : 0;
+	return 1;
 }
 
 # Hooks and extensions
@@ -422,7 +499,8 @@ sub hook {
 
 
 
-# Helpers
+
+# IO Helpers
 
 
 
@@ -452,6 +530,7 @@ sub filterPath {
 	return canonpath( $path );
 }
 
+
 sub filterFileName {
 	my ( $fname, $ns ) = @_;
 	state @reserved = 
@@ -478,7 +557,9 @@ sub filterFileName {
 		}
 	}
 	
-	return substr( $fname, 0, FILE_NAME_LIMIT );
+	# Maximum file name length
+	my $fnlimit	= setting( 'file_name_limit', 'int', 255 );
+	return substr( $fname, 0, $fnlimit ); 
 }
 
 # Relative storage directory
@@ -550,7 +631,7 @@ sub fileLock {
 		return 1; # Lock removed
 	}
 	
-	my $tries	= LOCK_TRIES;
+	my $tries	= setting( 'lock_tries', 'int', 4 );
 	while ( not sysopen ( my $fh, $fl, O_WRONLY | O_EXCL | O_CREAT ) ) {
 		if ( $tries == 0 ) {
 			return 0;
@@ -675,128 +756,50 @@ sub searchFiles {
 	return @items;
 }
 
-# Filter number within min and max range, inclusive
-sub intRange {
-	my ( $val, $min, $max ) = @_;
-	my $out = sprintf( "%d", "$val" );
- 	
-	return 
-	( $out > $max ) ? $max : ( ( $out < $min ) ? $min : $out );
+# Save text to file
+sub fileSave {
+	my ( $path, $data ) = @_;
+	
+	$path = storage( $path );
+	
+	# If file exists, create a backup
+	if ( -e $path ) {
+		my $bkp	= $path . '_backup_' . timestamp();
+		copy( $path, $bkp ) or die "Failed creating backup";
+	}
+	
+	fileWrite( $path, $data );
 }
 
-# Get raw __DATA__ content as text
-sub getRawData {
-	state $data;
-	
-	unless ( defined $data ) {
-		local $/ = undef;
-		$data = <DATA>;
-	}
-	
-	return $data;
-}
 
-# Get allowed file extensions, content types, and file signatures ("magic numbers")
-sub mimeList { 
-	state %mime_list = ();
-	if ( keys %mime_list ) {
-		return %mime_list;
-	}
-	
-	my $data = getRawData();
-	
-	# Mime data block
-	while ( $data =~ /^(?<mime>--\s*MIME\s*data:\s*\n.*?\n--\s*End\s*mime\s*?data\s*)/msgi ) {
-		my $find = $+{mime};
-		trim( \$find );
-		
-		# Extension, type, and file signature(s)
-		while ( $find =~ /^(?<ext>\S+)\s+(?<type>\S+)\s+(?<sig>.*?)\s*$/mg ) {
-			my ( $ext, $type, $sig ) = ( $+{ext}, $+{type}, $+{sig} );
-			if ( ! defined( $type ) ) {
-				$type = 'application/octet-stream';
-			}
-			if ( ! defined( $sig ) ) {
-				$sig = '';
-			}
-			my @sig = split( /\s+/, $sig );
-			$mime_list{$ext} = { type => $type, sig => \@sig };
-		}
-	}
-	
-	return %mime_list;
-}
 
-# Timestamp helper
-sub dateRfc {
-	my ( $stamp ) = @_;
-	
-	# Fallback to current time
-	$stamp = time() unless defined $stamp;
-	my $t = Time::Piece->strptime( "$stamp", '%s' );
-	
-	# RFC 2822
-	return $t->strftime( '%a, %d %b %Y %H:%M:%S %z' );
-}
 
-# Limit the date given to a maximum value of today
-sub verifyDate {
-	my ( $stamp, $now ) = @_;
-	
-	# Current date ( defaults to today )
-	$now	//= localtime->strftime('%Y-%m-%d');
-	
-	# Split stamp to components ( year, month, day )
-	my ( $year, $month, $day ) = $stamp =~ m{^(\d{4})/(\d{2})/(\d{2})$};
-	
-	# Set checks
-	return 0 unless defined( $year ) && defined( $month ) && defined( $day );
-	
-	# Range checks for year, month, day
-	return 0 if  $year < 1900 ||  $month < 1 || $month > 12 || $day < 1 || $day > 31;
-	
-	# Current date ( year, month, day )
-	my ( $year_, $month_, $day_ ) = $now =~ m{^(\d{4})-(\d{2})-(\d{2})$};
-	
-	# Given year greater than current year?
-	if ( $year > $year_ ) {
-		return 0;
+
+# Configuration settings
+
+
+
+
+# Override JSON encoded string configuration
+sub setConfig {
+	my ( $settings, $override )	= @_;
+	if ( !defined( $override ) || $override eq '' ) {
+		return $settings;
 	}
 	
-	# This year given?
-	if ( $year == $year_ ) {
-		
-		# Greater than current month?
-		if ( $month > $month_ ) {
-			return 0;
-		}
-		
-		# Greater than current day?
-		if ( $month == $month_ && $day > $day_ ) {
-			return 0;
-		}
-	}
+	# Configuration override
+	my %oconfig	= jsonDecode( $override );
+	return $settings if !keys %oconfig;
 	
-	# Leap year?
-	my $is_leap = (
-		( $year % 4 == 0 && $year % 100 != 0 ) || 
-		( $year % 400 == 0 ) 
-	);
-	
-	# Days in February, adjusting for leap years
-	my @dm	= ( 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 );
-	$dm[1]	= 29 if $month == 2 && $is_leap;
-	
-	# Maximum day for given month
-	return 0 if $day > $dm[$month - 1];
-	
-	return 1;
+	%$settings	= ( %$settings, %oconfig );
+	return $settings;
 }
 
 # Load configuration by realm or core
 sub config {
-	my ( $realm )		= @_;
+	my ( $realm, $override )	= @_;
 	$realm			//= '';
+	$override		//= '';
 	
 	state %settings		= {};
 	state %rsettings	= {};
@@ -809,17 +812,31 @@ sub config {
 	
 	# Default config
 	my $conf		= fileRead( storage( CONFIG_FILE ) );
-	%settings		= jsonDecode( $conf );
+	if ( $conf ne '' ) {
+		%settings	= jsonDecode( $conf );
+	}
 	
+	# Override base settings for this session, if needed
+	if ( $override ne '' ) {
+		%settings	= setConfig( \%settings, $override );
+	}
+	
+	# Realm settings default to base settings
+	%rsettings	= %settings;
 	
 	# Find realm specific config, if given, and merge to core
 	if ( $realm ne '' ) {
 		my $rconf	=  fileRead( catfile( $realm, CONFIG_FILE ) );
 		if ( $rconf ne '' ) {
 			my %nconfig	= jsonDecode( $rconf );
-			if ( %nconfig ) {
-				%rsettings	= { %settings, %nconfig };
+			if ( keys %nconfig ) {
+				%rsettings	= ( %rsettings, %nconfig );
 			}
+		}
+		
+		# Override realm settings for this session
+		if ( $override ne '' ) {
+			%rsettings	= setConfig( \%rsettings, $override );
 		}
 		
 		return \%rsettings;
@@ -828,17 +845,44 @@ sub config {
 	return \%settings;
 }
 
-# Main configuration by realm or core
+# Fitered configuration setting by realm or core
 sub setting {
-	my ( $label, $realm )	= @_;
+	my ( $label, $vtype, $default, $realm )	= @_;
 	
-	my $config		= config( $realm );
-	return $config->{$label} // '';
+	$vtype		= lc( $vtype // 'string' );
+	
+	my $config	= config( $realm // '' );
+	my $val		= $config->{$label} // '';
+	$default	//= '';
+	
+	if ( $val eq '' ) {
+		return $default;
+	}
+	
+	for ( $vtype ) {
+		/int/ and do {
+			return ( looks_like_number( $val ) && $val == int( $val ) ) ? 
+			$val : $default;
+		};
+		
+		/string/ and do {
+			return !ref( $val ) ? $val : $default;
+		};
+		
+		/hash/ and do {
+			return ( ref( $val ) eq 'HASH' ) ? $val : $default;
+		};
+	}
+	
+	return $default;
 }
 
 
 
+
+
 # Request 
+
 
 
 
@@ -855,10 +899,10 @@ sub requestHeaders {
 		return %headers;
 	}
 	
-	for ( sort( keys ( %ENV ) ) ) {
-		foreach my $p ( @prefix ) {
-			if ( $_ =~ /^\Q$p\E/ ) {
-				$headers{lc( $_ )} = $ENV{$_};
+	for my $var ( sort( keys %ENV ) ) {
+		foreach my $prefix ( @prefix ) {
+			if ( $var =~ /^\Q$prefix\E/ ) {
+				$headers{lc( $var )} = $ENV{$var};
 				last;
 			}
 		}
@@ -1022,33 +1066,15 @@ sub urlPath {
 	my ( $uri ) = @_;
 	
 	$uri =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/eg;
-	return $uri;
-	
-}
-
-# Raw, unbuffered input read
-sub rawRead {
-	my ( $br ) = @_;
-	my $out	= '';
-	
-	$br //= "\n";
-	
-	# https://stackoverflow.com/a/54816600
-	while ( sysread( STDIN, my $byte, 1 ) ) {
-		if ( $byte eq $br ) {
-			return $out;
-		}
-		
-		$out .= $byte;
-	}
+	return $uri;	
 }
 
 # Temporary storage for incoming form data
 sub formDataStream {
 	my ( $clen ) = @_;
 	
-	my $chunk;
 	my $bytes		= 0;
+	my $chunk;
 	my %err;
 	
 	my ( $tfh, $tfn )	= 
@@ -1067,7 +1093,8 @@ sub formDataStream {
 	
 	local $| = 1;	# Temporarily disable output buffering
 	
-	my $chunk_size	= 65536;
+	# Streaming chunk size
+	my $chunk_size	= setting( 'chunk_size', 'int', 65536 );
 	
 	while ( $bytes < $clen ) {
 		my $remaining	= $clen - $bytes;	# Default chunk size to remaining bytes
@@ -1370,16 +1397,25 @@ sub validateCaptcha {
 	my ( $snonce )	= @_;
 	
 	my %data	= formData();
+	unless ( hasErrors( $data ) ) {
+		return 0;
+	}
+	
+	my %fields	= %data->{fields} // {};
+	unless ( keys %fields ) {
+		return 0;
+	}
+	
 	if ( 
-		!defined( $data->{nonce} )	|| 
-		!defined( $data->{cnonce} )	|| 
-		!defined( $data->{captcha} )
+		!defined( $fields{nonce} )	|| 
+		!defined( $fields{cnonce} )	|| 
+		!defined( $fields{captcha} )
 	) {
 		return 0;
 	}
 	
 	my ( $nonce, $cnonce, $captcha ) = ( 
-		$data->{nonce}, $data->{cnonce}, $data->{captcha} 
+		$fields{nonce}, $fields{cnonce}, $fields{captcha} 
 	);
 
 	# Filter everything
@@ -1392,9 +1428,17 @@ sub validateCaptcha {
 	}
 	
 	# Match fixed sizes
+	my ( $csize, $nsize ) = (
+		# CAPTCHA field character length
+		setting( 'captcha_size', 'int', 8 ),
+		
+		# Form validation nonce length
+		setting( 'nonce_size', 'int', 64 )
+	);
+	
 	if  ( 
-		CAPTCHA_SIZE	!= length( $captcha )	|| 
-		NONCE_SIZE	!= length( $cnonce ) 
+		$csize	!= length( $captcha )	|| 
+		$nsize	!= length( $cnonce ) 
 	) {
 		return 0;
 	}
@@ -1406,7 +1450,7 @@ sub validateCaptcha {
 	$chk	=~ s/[0oO1liNzZ2m3=\/]//g;
 	
 	# Limit to CAPTCHA length (must match client-side code)
-	if ( lc( substr( $chk, 0, CAPTCHA_SIZE ) ) eq lc( $captcha ) ) {
+	if ( lc( substr( $chk, 0, $csize ) ) eq lc( $captcha ) ) {
 		return 1;
 	}
 	
@@ -1451,8 +1495,11 @@ sub getCookieData {
 # Set host/secure limiting prefix
 sub cookiePrefix {
 	my %request	= getRequest();
+	
+	# Base domain path
+	my $cpath	= setting( 'cookie_path', 'string', '/' );
 	return 
-	( COOKIE_PATH eq '/' && $request{'secure'} ) ? 
+	( $cpath eq '/' && $request{'secure'} ) ? 
 		'__Host-' : ( $request{'secure'} ? '__Secure-' : '' );
 }
 
@@ -1462,9 +1509,10 @@ sub cookieHeader {
 	
 	my %request	= getRequest();
 	my $prefix	= cookiePrefix();
+	my $cpath	= setting( 'cookie_path', 'string', '/' );
 	my @values	= ( 
 		$prefix . $data,
-		'Path=' . ( COOKIE_PATH // '/' ),
+		'Path=' . $cpath,
 		'SameSite=Strict',
 		'HttpOnly',
 	);
@@ -1491,7 +1539,8 @@ sub cookieHeader {
 sub setCookie {
 	my ( $name, $value, $ttl ) = @_;
 	
-	$ttl	//= COOKIE_EXP;
+	# Base expiration
+	$ttl	//= setting( 'cookie_exp', 'int', 604800 );
 	if ( $ttl < 0 ) {
 		$ttl = 0;
 	}
@@ -1545,7 +1594,9 @@ sub sessionID {
 
 # Send session cookie
 sub sessionSend {
-	setCookie( 'session', sessionID(), SESSION_EXP );
+	# Time before session cookie expires
+	my $sexp = setting( 'session_exp', 'int', 1800 );
+	setCookie( 'session', sessionID(), $sexp );
 }
 
 # Create a new session with blank data
@@ -1647,6 +1698,9 @@ sub sessionGC {
 	my $sdir	= storage( SESSION_DIR );
 	my $ntime	= time();
 	
+	# Time between cleaning up old cookies
+	my $gc		= setting( 'session_gc', 'int', 3600 );
+	
 	opendir( my $dh, $sdir ) or exit 1;
 	while ( readdir( $dh ) ) {
 		my $file	= catfile( $sdir, $_ );
@@ -1660,7 +1714,7 @@ sub sessionGC {
 		
 		my @fstat	= stat( $file );
 		if ( @fstat ) {
-			if ( ( $ntime - $fstat[9] ) > SESSION_GC ) {
+			if ( ( $ntime - $fstat[9] ) > $gc ) {
 				unlink ( $file );
 			}
 		}
@@ -1732,6 +1786,7 @@ sub template {
 	my ( $label ) = @_;
 	
 	state %tpl_list = ();
+	$label	= lc( $label );
 	
 	if ( keys %tpl_list ) {
 		return $tpl_list{$label} //= '';
@@ -1780,7 +1835,7 @@ sub genFileHeaders {
 	my $fsize	= -s $rs;
 	my $mtime	= ( stat( $rs ) )[9];
 	my $lmod	= dateRfc( $mtime );
- 	
+	
 	# Similar to Nginx ETag algo
 	my $etag		= 
 	sprintf( "%x-%x", 
@@ -1796,6 +1851,9 @@ sub genFileHeaders {
 sub httpCode {
 	my ( $code, $all ) = @_;
 	state %http_codes	= ();
+	
+	$code			//= '501';
+	$code			= "$code";
 	
 	# Preload HTTP status codes
 	if ( !keys %http_codes ) {
@@ -1822,7 +1880,7 @@ sub httpCode {
 	}
 	
 	# Check if status is currently present
-	if ( !exists( $http_codes{$code} ) ) {
+	if ( !exists( $http_codes{$code} ) || $code eq '501' ) {
 		print "Status: 501 Not Implemented\n";
 		exit;
 	}
@@ -1833,6 +1891,34 @@ sub httpCode {
 # Safety headers
 sub preamble {
 	my ( $skip_type, $min_csp ) = @_;
+	
+	# Base content security headers
+	state %default_headers = (			
+		'Content-Security-Policy'
+					=>
+			"default-src 'none'; base-uri 'self'; img-src *; font-src 'self'; " . 
+			"style-src 'self' 'unsafe-inline'; script-src 'self'; " . 
+			"form-action 'self'; media-src 'self'; connect-src 'self'; " . 
+			"worker-src 'self'; child-src 'self'; object-src 'none'; " . 
+			"frame-src 'self'; frame-ancestors 'self'",
+		
+		# These aren't usually necessary unless for a special web app
+		'Permissions-Policy'	=> 
+			"accelerometer=(none), camera=(none), geolocation=(none), "  . 
+			"fullscreen=(self), gyroscope=(none), magnetometer=(none), " . 
+			"microphone=(none), interest-cohort=(), payment=(none), usb=(none)",
+		
+		'Referrer-Policy'	=> "no-referrer strict-origin-when-cross-origin",
+		
+		'Strict-Transport-Security'
+					=> "max-age=31536000; includeSubDomains",
+		
+		'X-Content-Type-Options'=> "nosniff",
+		'X-Frame-Options'	=> "SAMEORIGIN",
+		'X-XSS-Protection'	=> "1; mode=block"
+	);
+	
+	my %sec_headers	= setting( 'sec_headers', 'hash', \%default_headers );
 	
 	# Default to not skipping content type
 	$skip_type	//= 0;
@@ -1865,7 +1951,7 @@ sub preamble {
 # Redirect to another path
 sub redirect {
 	my ( $path ) = @_;
-	httpCode( '303' );
+	httpCode( 303 );
 	print "Location: $path\n\n";
 	
 	exit;
@@ -1893,7 +1979,7 @@ sub sendOptions {
 	$allow	//= 'GET, POST, HEAD, OPTIONS';
  
 	# Fail mode?, send 405 HTTP status code, default 200 OK
-	httpCode( $fail ? '405' : '200' );
+	httpCode( $fail ? 405 : 200 );
 	print $fail ? 
 		"Allow: $allow\n" : 
 		"Access-Control-Allow-Methods: $allow\n" . 
@@ -1904,12 +1990,32 @@ sub sendOptions {
 
 # Response to invalid realm or other shenanigans
 sub sendBadRequest {
-	httpCode( '400' );
+	httpCode( 400 );
 	preamble( 1 );
 	
 	# Don't need HTML for this
 	print "Content-type: text/plain; charset=UTF-8\n\n";
 	print "Bad Request";
+	exit;
+}
+
+# Invalid file range request
+sub sendRangeError {
+	httpCode( 416 );
+	preamble( 1 );
+	print "Content-type: text/plain; charset=UTF-8\n\n";
+	print "Invalid file range requested";
+	exit;
+}
+
+# Test page response
+sub sendTestResponse {
+	httpCode( 200 );
+	preamble( 1 );
+	
+	my $t = dateRfc();
+	print "Content-type: text/plain; charset=UTF-8\n\n";
+	print "Request complete: $t";
 	exit;
 }
 
@@ -1937,8 +2043,7 @@ sub sendErrorResponse {
 		render( $ctpl );
 		
 	# Default to plaintext
-	} else {;
-		
+	} else {
 		preamble( 1, 1 );
 		print "Content-type: text/html; charset=UTF-8\n\n";
 		print $content // '';
@@ -1952,23 +2057,47 @@ sub sendNotFound {
 	my ( $realm, $verb ) = @_;
 	
 	my %data	= (
-		title	=> 'File not found',
-		body	=> 'The file or resource you\'re trying to access does not exist'
+		code	=> 404,
+		message	=> 'Not Found',
+		body	=> 'The page or folder you are trying to access could not be found.'
 	);
 	
 	sendErrorResponse( 
 		$realm, $verb, 404, 
-		replace( template( 'tpl_page' ), \%data )
+		replace( template( 'tpl_error_page' ), \%data )
 	);
 }
 
-# Invalid file range request
-sub sendRangeError {
-	httpCode( 416 );
-	preamble( 1 );
-	print "Content-type: text/plain; charset=UTF-8\n\n";
-	print "Invalid file range requested";
-	exit;
+# Access forbidden
+sub sendForbidden {
+	my ( $realm, $verb ) = @_;
+	
+	my %data	= (
+		code	=> 403,
+		message	=> 'Forbidden',
+		body	=> 'Access to this resource is restricted.'
+	);
+	
+	sendErrorResponse( 
+		$realm, $verb, 403, 
+		replace( template( 'tpl_error_page' ), \%data )
+	);
+}
+
+# Authentication required
+sub sendDenied {
+	my ( $realm, $verb ) = @_;
+	
+	my %data	= (
+		code	=> 401,
+		message	=> 'Unauthorized',
+		body	=> 'Access to this resource requires elevated privileges.'
+	);
+	
+	sendErrorResponse( 
+		$realm, $verb, 401, 
+		replace( template( 'tpl_error_page' ), \%data )
+	);
 }
 
 # Content page
@@ -1987,13 +2116,16 @@ sub sendPage {
 sub sendFile {
 	my ( $rs, $stream ) = @_;
 	
+	# File stream buffer size
+	my $bsize	= setting( 'buffer_size', 'int', 10240 );
+	
 	# Binary output and file opened in raw mode
 	binmode( STDOUT );
 	open( my $fh, '<:raw', $rs ) or exit 1;
 	
 	if ( $stream ) {
 		my $buf;
-		while ( read( $fh, $buf, BUFFER_SIZE ) ) {
+		while ( read( $fh, $buf, $bsize ) ) {
 			print $buf;
 		}
 	} else {
@@ -2054,10 +2186,11 @@ sub streamRanged {
 	binmode( STDOUT );
 	open( my $fh, '<:raw', $rs ) or exit 1;
 	
-	my $limit = 0;
+	my $bsize	= setting( 'buffer_size', 'int', 10240 );
+	my $limit	= 0;
 	my $buf;
 	my $chunk;
-	local $| = 1;	# Temporarily disable output buffering
+	local $|	= 1;	# Temporarily disable output buffering
 	
 	foreach my $range ( @{$ranges} ) {
 		my ( $start, $end ) = @{$range};
@@ -2083,7 +2216,7 @@ sub streamRanged {
 		# Send chunks until end of range
 		while ( $limit > 0 ) {
 			# Reset chunk size until below max buffer size
-			$chunk	= $limit > BUFFER_SIZE ? BUFFER_SIZE : $limit;
+			$chunk	= $limit > $bsize ? $bsize : $limit;
 			
 			my $ld	= read( $fh, $buf, $chunk );
 			if ( !defined( $ld ) || $ld == 0 ) {
@@ -2134,7 +2267,7 @@ sub sendResource {
 	# Types without signatures are treated as text
 	my $text = exists( $mime_list{$ext}{sig} ) ? 0 : 1;
 	
-	httpCode( '200' );
+	httpCode( 200 );
 	if ( !$text ) {
 		# Allow ranges for non-text types
 		print "Accept-Ranges: bytes\n";
@@ -3452,15 +3585,66 @@ end_tpl
 
 
 
+Generic error message wrapper
+
+tpl_error_page:
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>{code} - {message}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+* {
+	box-sizing: border-box
+}
+
+body {
+	font: 400 1rem sans-serif; 
+	line-height: 1.6; 
+	color: #34495E; 
+	background: #efefef 
+}
+
+h1 { 
+	font-weight: 400; margin: 0; 
+}
+
+a { color: #415b76 }
+a:active { color: #e74c3c }
+a:hover{ color: #2c81ba }
+
+main {
+	position: absolute; 
+	width: 80%; 
+	top: 50%; 
+	left: 50%; 
+	transform: translate( -50%, -50% ) 
+}
+</style>
+</head>
+<body>
+<main>
+	<h1>{code} - {message}</h1>
+	<p>{body}</p>
+	<p><a href="/">Back</a>
+</main>
+</body>
+</html>	
+
+end_tpl
+
+
+
 
 The following are mbedded media templates for use with uploaded files.
 
 tpl_figure_embed:
-<figure><img src="{src}"><figcaption>{caption}</figcaption></figure>
+<figure><img src="{src}" alt="{alt}"><figcaption>{caption}</figcaption></figure>
 end_tpl
 
 
-Embedded video with preview:
+Embedded audio:
 
 tpl_audio_embed:
 <div class="media"><audio src="{src}" preload="none" controls></audio></div>
@@ -3476,7 +3660,6 @@ tpl_video_np_embed:
 </div>
 end_tpl
 
-
 Embedded video with preview:
 
 tpl_video_embed:
@@ -3490,13 +3673,24 @@ end_tpl
 Video caption track without language:
 
 tpl_cc_nl_embed:
-<track kind="subtitles" src="{src}" {default}>
+<track kind="captions" src="{src}" {isdefault}>
 end_tpl
 
 
 Video caption with language
+
 tpl_cc_embed:
-<track label="{label}" kind="subtitles" srclang="{lang}" src="{src}" {default}>
+<track label="{label}" kind="subtitles" srclang="{lang}" src="{src}" {isdefault}>
+end_tpl
+
+
+Media transcript block
+
+tpl_transcript
+<figure class="transcript">
+	<figcaption>{title}</figcaption>
+	<blockquote>{script}</blockquote>
+</figure>
 end_tpl
 
 
