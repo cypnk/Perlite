@@ -2759,6 +2759,83 @@ sub markdown {
 	return makeParagraphs( $data );
 }
 
+# Generate pagination link data
+sub paginate {
+	my ( $total, $idx, $show )	= @_;
+	
+	# Total number of pages
+	$total		||= 1;
+	
+	# Current page index
+	$idx		||= 1;
+	
+	# Maximum number of page links to show
+	$show		||= 5;
+	
+	# Range of pages to show
+	my $half	= int( $show / 2 );
+	my $start_page	= $idx - $half;
+	my $end_page	= $idx + $half;
+	
+	# List of page items
+	my @links;
+	
+	# Limit display ranges
+	if ( $start_page < 1 ) {
+		$start_page	= 1;
+		$end_page	= $show < $total ? $show : $total;
+	}
+	
+	if ( $end_page > $total ) {
+		$end_page = $total;
+		if ( $total - $show + 1 > 0 ) {
+			$start_page = $total - $show + 1;
+		}
+	}
+	
+	if( $idx > 1 ) {
+		push( @links, { 
+			text		=> '{page_first}', 
+			page		=> 1,
+			is_current	=> 0
+		} );
+		
+		if ( $idx > 2 ) {
+			push( @links, { 
+				text		=> '{page_previous}', 
+				page		=> $idx - 1,
+				is_current	=> 0
+			} );
+		}
+	}
+	
+	for my $i ( $start_page .. $end_page ) {
+		push( @links, { 
+			text		=> $i, 
+			page		=> $i,
+			is_current	=> $i == $idx
+		} );
+	}
+	
+	if ( $idx < $total )
+		if ( $idx + 1 < $total ) {
+			push( @links, { 
+				text		=> '{page_next}', 
+				page		=> $idx + 1,
+				is_current	=> 0
+			} );
+		}
+		
+		push( @links, { 
+			text		=> '{page_last}', 
+			page		=> $total,
+			is_current	=> 0
+		} );
+	}
+	
+	return @links;
+}
+
 
 
 
