@@ -2295,13 +2295,21 @@ sub sendResource {
 
 
 
+
 # Formatting
+
 
 
 
 # Get allowed HTML tags
 sub allowedTags {
-	state %whitelist = (
+	state %whitelist;
+	
+	if ( keys %whitelist ) {
+		return %whitelist;
+	}
+	
+	state %default_whitelist = (
 		"p"		=> [ "style", "class", "align", 
 				"data-pullquote", "data-video", 
 				"data-media" ],
@@ -2371,6 +2379,7 @@ sub allowedTags {
 		"blockquote"	=> [ "style", "class", "cite" ]
 	);
 	
+	%whitelist	= setting( 'tag_whitelist', 'hash', \%default_whitelist );
 	return %whitelist;
 }
 
@@ -2434,15 +2443,72 @@ sub footnote {
 	return '';
 }
 
-# TODO: Process uploaded media embeds
-sub embeds {
-	my ( $ref, $source, $title, $caption, $preview  ) = @_;
+# Extract subtitles or captions
+sub extractCC {
+	my ( $urls )	= @_;
+	my @subs	= map { [split(/:/, $_)] } split(/,\s*/, $urls );
+	my $out		= '';
 	
+	foreach my $track ( @$subs ) {
+		my %data	= {};
+		my $len		= scalar( $track );
+		
+		# Only a track
+		if ( $len == 1 ) {
+			%data	= (
+				src		= @$track[0],
+				isdefault	= ''
+			);
+			
+			$out	.= 
+			replace( template( 'tpl_cc_nl_embed' ), %data );
+			next;
+		}
+		
+		# Not a language, but is default
+		if ( $len == 2 && lc( @$track[1] ) eq 'default' ) {
+			%data	= (
+				src		= @$track[0],
+				isdefault	= 'default'
+			);
+			
+			$out	.= 
+			replace( template( 'tpl_cc_nl_embed' ), %data );
+			next;
+		
+		# Language, but not default
+		} elsif ( $len == 2 ) {
+			%data	= (
+				src		= @$track[0],
+				lang		= @$track[1],
+				isdefault	= ''
+			);
+			
+			$out	.= 
+			replace( template( 'tpl_cc_embed' ), %data );
+			next;
+		}
+		
+		# Language and is default
+		%data	= (
+			src		= @$track[0],
+			lang		= @$track[1],
+			isdefault	= 'default'
+		);
+		$out	.= replace( template( 'tpl_cc_embed' ), %data );
+	}
+	
+	return $out;
+}
+
+# Process uploaded media embeds
+sub embeds {
+	my ( $ref, $source, $title, $captions, $preview ) = @_;
 	my %data	= (
 		src	=> $source,
 		title	=> $title,
-		caption	=> $caption,
-		preview	=> $preview
+		preview	=> $preview,
+		detail	=> extractCC( $captions )
 	);
 	
 	for ( $ref ) {
@@ -2451,11 +2517,9 @@ sub embeds {
 		};
 		
 		/video/ and do {
-			return replace( template( 'tpl_video_embed' ), %data );
-		};
-		
-		/figure/ and do {
-			return replace( template( 'tpl_figure_embed' ) );
+			return ( $preview eq '' ) ?
+			replace( template( 'tpl_video_np_embed' ), %data ) : 
+			replace( template( 'tpl_video_embed' ), %data );
 		};
 	}
 	
@@ -2466,17 +2530,17 @@ sub embeds {
 # Third-party hosted media embedding
 sub hostedEmbeds {
 	my ( $host, $url ) = @_;
-	
-	my %data;
 	my @pats;
 	
 	for ( $host ) {
 		/youtube/ and do {
 			@pats = (
-				qr/http(s)?\:\/\/(www)?\.?youtube\.com\/watch\?v=
+				qr/(?:https?\:\/\/(www\.)?)?
+					youtube\.com\/watch\?v=
 					(?<src>[0-9a-z_\-]*)
 					(?:\&t\=(?<time>[\d]*)s)?/is,
-				qr/http(s)?\:\/\/(www)?\.?youtu\.be\/
+				qr/(?:https?\:\/\/(www\.)?)?
+					youtu\.be\/
 					(?<src>[0-9a-z_\-]*)
 					(?:\?t\=(?<time>[\d]*))?/is,
 				qr/(?<src>[0-9a-z_\-]*)/is
@@ -2485,7 +2549,8 @@ sub hostedEmbeds {
 			# Try to find a matching YouTube URL
 			foreach my $rx ( @pats ) {
 				if ( $url =~ $rx ) {
-					return replace( template( 'tpl_youtube' ), %+ );
+					return 
+					replace( template( 'tpl_youtube' ), %+ );
 				}
 			}
 			
@@ -2495,13 +2560,15 @@ sub hostedEmbeds {
 		
 		/vimeo/ and do {
 			@pats = (
-				qr/http(s)?\:\/\/(www)?\.?vimeo\.com\/(?<src>[0-9]*)/is,
+				qr/(?:https?\:\/\/(www\.)?)?
+				vimeo\.com\/(?<src>[0-9]*)/is,
 				qr/(?<src>[0-9]*)/is
 			);
 			
 			foreach my $rx ( @pats ) {
 				if ( $url =~ $rx ) {
-					return replace( template( 'tpl_vimeo' ), %+ );
+					return 
+					replace( template( 'tpl_vimeo' ), %+ );
 				}
 			}
 			
@@ -2509,29 +2576,38 @@ sub hostedEmbeds {
 		};
 		
 		/peertube/ and do {
-			if ( $url =~ qr/http(s)?\:\/\/(?<src_host>.*?)\/videos\/watch\/
+			if ( $url =~ qr/(?:https?\:\/\/(www\.)?)?
+					(?<src_host>.*?)\/videos\/watch\/
 					(?<src>[0-9\-a-z_]*)\]/is ) {
-				return replace( template( 'tpl_peertube' ), %+ );
+				return 
+				replace( template( 'tpl_peertube' ), %+ );
 			}
+			
+			return '[peertube ' . $url . ']';
 		};
 		
 		/archive/ and do {
 			@pats = (
-				qr/http(s)?\:\/\/(www)?\.?archive\.org\/details\/
+				qr/(?:https?\:\/\/(www\.)?)?
+					archive\.org\/details\/
 					(?<src>[0-9\-a-z_\/\.]*)\]/is,
 				qr/(?<src>[0-9a-z_\/\.]*)\]/is
 			);
 			
 			foreach my $rx ( @pats ) {
 				if ( $url =~ $rx ) {
-					return replace( template( 'tpl_archiveorg' ), %+ );
+					return 
+					replace( template( 'tpl_archiveorg' ), %+ );
 				}
 			}
+			
+			return '[archive ' . $url . ']';
 		};
 		
 		/lbry|odysee/ and do {
 			@pats = (
-				qr/http(s)?\:\/\/(?<src_host>.*?)\/\$\/download\/
+				qr/(?:https?\:\/\/(www\.)?)?
+					(?<src_host>.*?)\/\$\/download\/
 					(?<slug>[\pL\pN\-_]*)\/\-?
 					(?<src>[0-9a-z_]*)\]/is,
 				qr/lbry\:\/\/\@(?<src_host>.*?)\/([\pL\pN\-_]*)
@@ -2542,21 +2618,67 @@ sub hostedEmbeds {
 			foreach my $rx ( @pats ) {
 				return replace( template( 'tpl_lbry' ), %+ );
 			}
+			
+			return '[lbry ' . $url . ']';
 		};
 		
 		/utreon|playeur/ and do {
-			if ( $url =~ qr/(?:http(s)?\:\/\/(www\.)?)?
+			if ( $url =~ qr/(?:https?\:\/\/(www\.)?)?
 					(?:utreon|playeur)\.com\/v\/
 					(?<src>[0-9a-z_\-]*)
-				(?:\?t\=(?<time>[\d]{1,}))?\]/is 
+					(?:\?t\=(?<time>[\d]{1,}))?\]/is 
 			) {
 				return replace( template( 'tpl_playeur' ), %+ );
 			}
+			
+			return '[playeur ' . $url . ']';
 		};
 	}
 	
 	# Nothing else found
 	return '';
+}
+
+# Table data row
+sub formatRow {
+	my ( $row, $header )	= @_;
+	$header		//= 0;
+	
+	my $tag		= $header ? 'th' : 'td';
+	
+	# Split on pipe symbol, skipping escaped pipes '\|'
+	my @data	= split( /(?<!\\)\|/, $row );
+	my $html	= join( '', map { "<$tag>$_</$tag>" } @data );
+	
+	return "<tr>$html</tr>\n";
+}
+
+# Convert ASCII table to HTML
+sub formatTable {
+	my ( $table ) = @_;
+	my $html	= '';
+	
+	# Lines = Rows
+	my @rows	= split( /\n/, $table );
+	
+	# In header row, if true
+	my $first	= 1;
+	
+	foreach my $row ( @rows ) {
+		# Trim
+		trim( \$row );
+		
+		# Skip empty rows or lines with just separator
+		next if $row eq '' || $row =~ /^(\+|-)+$/;
+		
+		# First round is the header
+		$html	.= formatRow( $row, $first );
+		next unless $first;
+		
+		$first	= 0;
+	}
+	
+	return "<table>$html</table>\n";
 }
 
 # Close open list types
@@ -2597,7 +2719,7 @@ sub formatEndLists {
 	while ( @$lstack ) {
 		$$html .= 
 		( $lstack->[-1]{type} eq 'ul' ) ? '</ul>' : (
-			 ( $lstack->[-1]{type} eq 'ol' ) ? '</ol>' : '</dl>'
+			( $lstack->[-1]{type} eq 'ol' ) ? '</ol>' : '</dl>'
 		);
 		pop @$lstack;
 	}
@@ -2681,47 +2803,6 @@ sub formatLists {
 	return $text;
 }
 
-# Table data row
-sub formatRow {
-	my ( $row, $header )	= @_;
-	$header		//= 0;
-	
-	my $tag		= $header ? 'th' : 'td';
-	
-	# Split on pipe symbol, skipping escaped pipes '\|'
-	my @data	= split( /(?<!\\)\|/, $row );
-	my $html	= join( '', map { "<$tag>$_</$tag>" } @data );
-	
-	return "<tr>$html</tr>\n";
-}
-
-# Convert ASCII table to HTML
-sub formatTable {
-	my ( $table ) = @_;
-	my $html	= '';
-	
-	# Lines = Rows
-	my @rows	= split( /\n/, $table );
-	
-	# In header row, if true
-	my $first	= 1;
-	
-	foreach my $row ( @rows ) {
-		trim( \$row );
-		
-		# Skip empty rows or lines with just separator
-		next if $row eq '' || $row =~ /^(\+|-)+$/;
-		
-		# First round is the header
-		$html	.= formatRow( $row, $first );
-		next unless $first;
-		
-		$first	= 0;
-	}
-	
-	return "<table>$html</table>\n";
-}
-
 # Wrap body text and line breaks in paragraphs
 sub makeParagraphs {
 	my ( $html, $ns )	= @_;
@@ -2800,12 +2881,13 @@ sub markdown {
 		},
 		
 		# Headings
-		'(^|\n)(?<delim>[#=]{1,6})\s?(?<text>.*?)\s?\2?\n?' 
+		'(^|\n)(?<delim>[#=]{1,6})\s?(?<text>.*?)\s?\2?\n' 
 		=> sub {
 			my $level	= length( $+{delim} );	# Indent depth
 			my $text	= $+{text};		# Heading
 			
 			trim( \$text );
+			
 			return "<h$level>$text</h$level>";
 		},
 		
@@ -2821,7 +2903,19 @@ sub markdown {
 		=> sub {
 			my $code = escapeCode( $+{code} );
 			return "<pre><code>$code</code></pre>";
-		},
+		}, 
+		
+		# Templates
+		'(?<!\\\\)\{\{(.*?)\}\}(?<!\\\\)'
+		=> sub {
+			my ( $tpl, $opts ) = @_;
+			if ( $opts ) {
+				# TODO: Parse options
+				return "<span class=\"template\" $opts>$tpl</span>";
+			} else {
+				return "<span class=\"template\">$tpl</span>";
+			}
+		}, 
 		
 		# Tables
 		'(\+[-\+]+[\+\-]+\s*\|\s*.+?\n(?:\+[-\+]+[\+\-]+\s*\|\s*.+?\n)*)'
@@ -2830,39 +2924,72 @@ sub markdown {
 		},
 		
 		# Horizontal rule
-		'\n(\-|_|\+){5,}\n'
+		'(?<!\\\\)([\-_]{4,})(?=\r?\n)'
 		=> sub {
 			return '<hr />';
 		},
 		
-		# References, Media, Embeds etc...
+		# Uploaded media embedding
+		# Matches in order:
+		# Embed type, alt or title, source URL, preview image, subtitles or captions
+		qr/\[
+			(?<ref>audio|video)(\s*)?:(\s*)?(?<title>[^\]]*)\]	# Embed type and title
+			\((?<source>[^"]+)					# Source URL
+			(?:\s+"(?<preview>.*?)")?				# Preview image, if present
+			(?:\s+"(?<captions>(?:[^\"]+:?[^\"]*(?:,\s*[^\"]+:?[^\"]*)*))")?
+		\)/ixs
+		=> sub {
+			
+			# Reference type
+			my $ref		= $+{ref};
+			
+			# Source URL
+			my $source	= $+{source}	// '';
+			
+			# Detail
+			my $title	= $+{title}	// '';
+			my $preview	= $+{preview}	// '';
+			my $captions	= $+{captions}	// '';
+			
+			trim( \$ref );
+			
+			return 
+			embeds( $ref, $source, $title, $captions, $preview );
+		},
+		
+		# References, figures, third party embeds etc...
 		qr/
 			\[
 				(?<ref>[^\]\[\"\s]+)			# Reference or embed marker
 				(?:\"(?<title>([^\"]|\\\")+)\")?	# Alt or title
 				(?:\[(?<caption>.*?)\] )?		# Caption(s), if present
-				(?:\((?<preview>.*?)\) )?		# Preview image, if present
 				(?<source>.*?)				# Source URL or note
 			\]
 		/ixs
 		=> sub {
 			my $ref		= $+{ref};
 			my $source	= $+{source}	// '';
-			
 			my $title	= $+{title}	// '';
 			my $caption	= $+{caption}	// '';
-			my $preview	= $+{preview}	// '';
 			
 			trim( \$ref );
+			
 			for ( $ref ) {
 				# TODO: Process footnotes
 				/ref|footnote/ and do { 
 					return 'footnote'; 
 				};
 				
-				# Uploaded media embedding
-				/audio|video|figure/ and do {
-					return embeds( $ref, $source, $title, $caption, $preview );
+				# Embedded figure with caption
+				/figure/ and do { 
+					my %data	= (
+						src	=> $source,
+						alt	=> $title,
+						caption	=> $caption
+					);
+					
+					return 
+					replace( template( 'tpl_figure_embed' ), %data );
 				};
 				
 				# Third-party hosted media embedding
@@ -2872,6 +2999,15 @@ sub markdown {
 			}
 			
 			return '';
+		},
+		
+		# Wiki-style link
+		'(?<!\\\\)\[\s*([^\]\|]+?)\s*(?:\|\s*([^\]]+?))?\s*\](?<!\\\\)' 
+		=> sub {
+			my ( $url, $text )  = ( $1, $2 );
+			$text ||= $url;
+			
+			return '<a href="'. $url . '">' . $text . '</a>';
 		}
 	);
 	
@@ -2879,8 +3015,10 @@ sub markdown {
 	foreach my $pat ( keys %patterns ) {
 		my $subr	= $patterns{$pat};
 		if ( $pat =~ /<\w+>/ ) {
+			# Named captures
 			$data =~ s/$pat/sub { $subr->(%+) }/ge;
 		} else {
+			# All else
 			$data =~ s/$pat/sub { $subr->($&) }/ge;
 		}
 	}
