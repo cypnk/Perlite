@@ -28,16 +28,12 @@ use JSON qw( decode_json encode_json );
 use 5.32.1;
 
 
+# Default settings 
 
-# Default settings
 use constant {
-	# Core defaults
- 	
+	
 	# Writable content location
 	STORAGE_DIR		=> "storage",
-	
-	# Default configuration file name in storage and per-site
-	CONFIG_FILE		=> "config.json",
 	
 	# Uploaded file subfolder in storage
 	UPLOADS			=> "uploads",
@@ -45,65 +41,12 @@ use constant {
 	# Session storage fubfolder in storage
 	SESSION_DIR		=> "sessions",
 	
-	# Username and password storage file name
-	USER_FILE		=> "users.txt",
+	# Default configuration file name in storage and per-site
+	CONFIG_FILE		=> "config.json",
 	
-	# Username and given permissions
-	ROLE_FILE		=> "roles.txt"
+	# File lock attempts
+	LOCK_TRIES		=> 4
 };
-
-# Request methods and path handler map
-our %path_map = (
-	get	=> [	
-		# Homepage
-		{ path => "",				handler => "viewHome" },
-		
-		# Paginated index
-		{ path => "page:page",			handler => "viewHome" },
-		
-		# Static file
-		{ path => "static/:file",		handler => "viewStatic" },
-		{ path => "static/:tree/:file",		handler => "viewStatic" },
-		
-		# Content creating/editing
-		{ path => "new",			handler => "viewNewPost" },
-		{ path => "edit/:tree",			handler => "viewEditPost" },
-		
-		# Access pages
-		{ path => "login",			handler => "viewLogin" },
-		{ path => "register",			handler => "viewRegister" },
-		
-		# Segment page or section
-		{ path => ":tree",			handler => "viewHome" }
-	],
-	
-	post	=> [
-		{ path => "new",			handler => "doNewPost" },
-		{ path => "edit",			handler => "doEditPost" },
-		
-		{ path => "login",			handler => "doLogin" },
-		{ path => "register",			handler => "doRegister" }
-	],
-	
-	head	=> [	
-		# Homepage
-		{ path => "",				handler => "viewHome" },
-		{ path => "page:page",			handler => "viewHome" },
-		
-		{ path => "static/:file",		handler => "viewStatic" },
-		{ path => "static/:tree/:file",		handler => "viewStatic" },
-		
-		{ path => "new",			handler => "viewNewPost" },
-		{ path => "edit/:tree",			handler => "viewEditPost" },
-		
-		{ path => "login",			handler => "viewLogin" },
-		{ path => "register",			handler => "viewRegister" },
-		
-		# Segment page or section
-		{ path => ":tree",			handler => "viewHome" }
-	]
-);
-
 
 
 
@@ -113,7 +56,7 @@ our %path_map = (
 
 
 # Formatted date time helper
-sub timstamp {
+sub timestamp {
 	my @time	= localtime();
 	
 	return sprintf(
@@ -192,82 +135,6 @@ sub getRawData {
 	
 	return $data;
 }
-
-# Get allowed file extensions, content types, and file signatures ("magic numbers")
-sub mimeList { 
-	state %mime_list = ();
-	if ( keys %mime_list ) {
-		return %mime_list;
-	}
-	
-	my $data = getRawData();
-	
-	# Mime data block
-	while ( $data =~ /^(?<mime>--\s*MIME\s*data:\s*\n.*?\n--\s*End\s*mime\s*?data\s*)/msgi ) {
-		my $find = $+{mime};
-		trim( \$find );
-		
-		# Extension, type, and file signature(s)
-		while ( $find =~ /^(?<ext>\S+)\s+(?<type>\S+)\s+(?<sig>.*?)\s*$/mg ) {
-			my ( $ext, $type, $sig ) = ( $+{ext}, $+{type}, $+{sig} );
-			if ( ! defined( $type ) ) {
-				$type = 'application/octet-stream';
-			}
-			if ( ! defined( $sig ) ) {
-				$sig = '';
-			}
-			my @sig = split( /\s+/, $sig );
-			$mime_list{$ext} = { type => $type, sig => \@sig };
-		}
-	}
-	
-	return %mime_list;
-}
-
-# Append hash value by incrementing numerical key index
-sub append {
-	my ( $ref, $key, $msg ) = @_;
-	
-	# Nothing to append
-	unless ( defined( $ref ) && ref( $ref ) eq 'HASH' ) {
-		return;
-	}
-	
-	if ( exists( $ref->{$key} ) ) {
-		# Increment indexed hash value
-		$ref->{$key}{ 
-			scalar( keys %$ref->{$key} ) + 1 
-		} = $msg;
-		return;
-	}
-	$ref->{$key} = { 1 => $msg };
-}
-
-# Error and message report formatting helper
-sub report {
-	my ( $msg )	= @_;
-	my ( $pkg, $fname, $line, $func ) = caller( 1 );
-	
-	$msg	||= 'Empty message';
-	$msg	= unifySpaces( $msg );
-	$fname	= filterPath( $fname );
-	
-	return 
-	"${msg} ( Package: ${pkg}, File: ${fname}, " . 
-		"Subroutine: ${func}, Line: ${line} )";
-}
-
-# Check if hash has an 'error' key set and is not 0
-sub hasErrors {
-	my ( $ref )	= @_;
-	
-	return 
-	defined( $ref->{error} ) && ( 
-		( $ref->{error} eq 'HASH' && keys %{ $ref->{error} } ) || 
-		$ref->{error}
-	) ? 1 : 0;
-}
-
 
 
 
@@ -478,6 +345,94 @@ sub hook {
 	}
 }
 
+# Get allowed file extensions, content types, and file signatures ("magic numbers")
+sub mimeList { 
+	state %mime_list = ();
+	if ( keys %mime_list ) {
+		return %mime_list;
+	}
+	
+	my $data = getRawData();
+	
+	# Mime data block
+	while ( $data =~ /^(?<mime>--\s*MIME\s*data:\s*\n.*?\n--\s*End\s*mime\s*?data\s*)/msgi ) {
+		my $find = $+{mime};
+		trim( \$find );
+		
+		# Extension, type, and file signature(s)
+		while ( $find =~ /^(?<ext>\S+)\s+(?<type>\S+)\s+(?<sig>.*?)\s*$/mg ) {
+			my ( $ext, $type, $sig ) = ( $+{ext}, $+{type}, $+{sig} );
+			if ( ! defined( $type ) ) {
+				$type = 'application/octet-stream';
+			}
+			if ( ! defined( $sig ) ) {
+				$sig = '';
+			}
+			my @sig = split( /\s+/, $sig );
+			$mime_list{$ext} = { type => $type, sig => \@sig };
+		}
+	}
+	
+	return %mime_list;
+}
+
+# Append hash value by incrementing numerical key index
+sub append {
+	my ( $ref, $key, $msg ) = @_;
+	
+	# Nothing to append
+	unless ( defined( $ref ) && ref( $ref ) eq 'HASH' ) {
+		return;
+	}
+	
+	if ( exists( $ref->{$key} ) ) {
+		# Increment indexed hash value
+		$ref->{$key}{ 
+			scalar( keys %{ $ref->{$key} } ) + 1 
+		} = $msg;
+		return;
+	}
+	$ref->{$key} = { 1 => $msg };
+}
+
+# Error and message report formatting helper
+sub report {
+	my ( $msg )	= @_;
+	my ( $pkg, $fname, $line, $func ) = caller( 1 );
+	
+	$msg	||= 'Empty message';
+	$msg	= unifySpaces( $msg );
+	$fname	= filterPath( $fname );
+	
+	return 
+	"${msg} ( Package: ${pkg}, File: ${fname}, " . 
+		"Subroutine: ${func}, Line: ${line} )";
+}
+
+# Check if hash has an 'error' key set and is not 0
+sub hasErrors {
+	my ( $ref )	= @_;
+	
+	return 
+	defined( $ref->{error} ) && ( 
+		( $ref->{error} eq 'HASH' && keys %{ $ref->{error} } ) || 
+		$ref->{error}
+	) ? 1 : 0;
+}
+
+
+##
+##  printenv -- demo CGI program which just prints its environment
+##
+
+print "Content-type: text/plain; charset=iso-8859-1\n\n";
+foreach my $var (sort(keys(%ENV))) {
+	my $val = $ENV{$var};
+	$val =~ s|\n|\\n|g;
+	$val =~ s|"|\\"|g;
+	print "${var}=\"${val}\"\n";
+}
+
 
 
 
@@ -511,7 +466,7 @@ sub filterPath {
 	return canonpath( $path );
 }
 
-
+# Convert to cross-platform safe filename
 sub filterFileName {
 	my ( $fname, $ns ) = @_;
 	state @reserved = 
@@ -755,7 +710,6 @@ sub fileSave {
 
 
 
-
 # Configuration settings
 
 
@@ -776,23 +730,48 @@ sub setConfig {
 	return $settings;
 }
 
+# Save modified configuration data
+sub saveConfig {
+	my ( $name, $output, $params )	= @_;
+	
+	my %settings	= %{$params->{data}} // {};
+	my $file	= $params->{file} // '';
+	if ( !keys %settings || $file eq '' ) {
+		return;
+	}
+	
+	my $out	= encode_json( %settings );
+	if ( $out ne '' ) {
+		fileSave( $file, $out );
+	}
+}
+
 # Load configuration by realm or core
 sub config {
 	my ( $realm, $override )	= @_;
 	$realm			//= '';
 	$override		//= '';
 	
+	state $saved		= 1;
 	state %settings		= {};
 	state %rsettings	= {};
 	
-	if ( $realm eq '' ) {
-		return \%settings if keys %settings;
+	# Not overriding
+	if ( $override eq '' ) {
+		if ( $realm eq '' ) {
+			return \%settings if keys %settings;
+		} else {
+			return \%rsettings if keys %rsettings;
+		}
+	
+	# Overriding, changes haven't been saved yet
 	} else {
-		return \%rsettings if keys %rsettings;
+		$saved		= 0;
 	}
 	
 	# Default config
-	my $conf		= fileRead( storage( CONFIG_FILE ) );
+	my $cfile		= CONFIG_FILE;
+	my $conf		= fileRead( storage( $cfile ) );
 	if ( $conf ne '' ) {
 		%settings	= jsonDecode( $conf );
 	}
@@ -807,7 +786,8 @@ sub config {
 	
 	# Find realm specific config, if given, and merge to core
 	if ( $realm ne '' ) {
-		my $rconf	=  fileRead( catfile( $realm, CONFIG_FILE ) );
+		my $rfile	= catfile( $realm, CONFIG_FILE );
+		my $rconf	= fileRead( storage( $rfile ) );
 		if ( $rconf ne '' ) {
 			my %nconfig	= jsonDecode( $rconf );
 			if ( keys %nconfig ) {
@@ -820,9 +800,42 @@ sub config {
 			%rsettings	= setConfig( \%rsettings, $override );
 		}
 		
+		# Register save event at shutdown
+		unless ( $saved ) {
+			hook( { 
+				event		=> 'perlite_shutdown', 
+				handler		=> 'saveConfig',
+				params		=> {
+					file	=> $cfile,
+					data	=> \%settings
+				}
+			} );
+			
+			hook( { 
+				event		=> 'perlite_shutdown', 
+				handler		=> 'saveConfig',
+				params		=> {
+					file	=> $rfile,
+					data	=> \%rsettings
+				}
+			} );
+			$saved = 1;
+		}
+		
 		return \%rsettings;
 	}
 	
+	unless ( $saved ) {
+		hook( { 
+			event		=> 'perlite_shutdown', 
+			handler		=> 'saveConfig',
+			params		=> {
+				file	=> $cfile,
+				data	=> \%settings
+			}
+		} );
+		$saved = 1;
+	}
 	return \%settings;
 }
 
@@ -857,7 +870,6 @@ sub setting {
 	
 	return $default;
 }
-
 
 
 
@@ -1238,16 +1250,16 @@ sub formDataSegment {
 			close( $tfh ) or do {
 				append( 
 					\%err, 'formDataSegment', 
-					report( "Error closing temporary file: ${tfn}" ) 
+					report( "Error closing temporary file: ${tname}" ) 
 				);
 				return { error => \%err };
 			};
 			
 			# Special case if file was moved/deleted mid-operation
-			unless ( -e $tfn ) {
+			unless ( -e $tname ) {
 				append( 
 					\%err, 'formDataSegment', 
-					report( "Temporary file was moved, deleted, or quarantined: ${tfn}" ) 
+					report( "Temporary file was moved, deleted, or quarantined: ${tname}" ) 
 				);
 				# Nothing left to close or delete
 				return { error => \%err };
