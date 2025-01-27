@@ -44,8 +44,11 @@ use constant {
 	# Default configuration file name in storage and per-site
 	CONFIG_FILE		=> "config.json",
 	
-	# File lock attempts
-	LOCK_TRIES		=> 4
+	# Username and password storage file name
+	USER_FILE		=> "users.txt",
+
+	# Username and given permissions
+	ROLE_FILE		=> "roles.txt"
 };
 
 
