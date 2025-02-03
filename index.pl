@@ -1079,7 +1079,7 @@ sub formDataStream {
 		SUFFIX	=> '.tmp' 
 	);
 	
-	unless ( $tfh ) {
+	unless ( defined( $tfh ) && defined( $tfn ) ) {
 		append( 
 			\%err, 'formDataStream', 
 			report( "Failed to create a temp file for form data" ) 
@@ -1087,10 +1087,12 @@ sub formDataStream {
 		return { error => \%err };
 	}
 	
-	local $| = 1;	# Temporarily disable output buffering
-	
 	# Streaming chunk size
 	my $chunk_size	= setting( 'chunk_size', 'int', 65536 );
+	
+	# Flush frequency
+	my $flush_freq	= setting( 'flush_freq', 'int', 100 );
+	my $flush_count	= 0;
 	
 	while ( $bytes < $clen ) {
 		my $remaining	= $clen - $bytes;	# Default chunk size to remaining bytes
@@ -1121,6 +1123,13 @@ sub formDataStream {
 			unlink( $tfh );
 			return { error => \%err };
 		};
+		
+		$flush_count++;
+		if ( $flush_count >= $flush_freq ) {
+			$tfh->flush();
+			$flush_count = 0;
+		}
+		
 		$bytes	+= $read;
 	}
 	
@@ -1135,7 +1144,10 @@ sub formDataStream {
 		unlink( $tfh );
 		return { error => \%err };
 	}
-
+	
+	# Flush remaining chunks, if any
+	$tfh->flush() if $flush_count > 0;
+	
 	# Reset seek to beginning of file
 	seek( $tfh, 0, 0 ) or do {
 		append( 
@@ -1231,7 +1243,7 @@ sub formDataSegment {
 			my ( $tfh, $tname ) = tempfile();
 			
 			# Temp file failed?
-			unless ( $tfh ) {
+			unless ( defined( $tfh ) && defined( $tname ) ) {
 				append( 
 					\%err, 'formDataSegment', 
 					report( "Temp file creation error for file upload ${name} at ${tname}" ) 
@@ -1250,6 +1262,7 @@ sub formDataSegment {
 				return { error => \%err };
 			};
 			
+			$tfh->flush();
 			close( $tfh ) or do {
 				append( 
 					\%err, 'formDataSegment', 
@@ -1337,8 +1350,8 @@ sub formData {
 		return { fields => [], files => [], error => \%err };
 	}
 	
-	my %state		= formDataStream( $clen );
-	if ( hasErrors( $state ) ) {
+	my $state		= formDataStream( $clen );
+	if ( hasErrors( %{$state} ) ) {
 		%err = %{$state->{error}};
 		# Merge stream errors
 		append( 
@@ -1349,18 +1362,21 @@ sub formData {
 		return { fields => [], files => [], error => \%err };
 	}
 	
-	my %fields = ();
-	my @uploads = [];
+	my %fields	= ();
+	my @uploads	= [];
 	
 	# Process the file content in chunks
-	my $buffer = '';
-	while ( my $line = <$state->{stream}> ) {
+	my $buffer	= '';
+	my $stream	= %{$state->{stream}};
+	while ( my $line = <$stream> ) {
 		$buffer .= $line;
 
 		# Once a boundary is reached, process the segment
 		if ( $buffer =~ /--\Q$boundary\E(?!-)/ ) {
-			my %segment = formDataSegment( $buffer, $boundary, \%fields, \@uploads );
-			if ( hasErrors( $segment ) ) {
+			my $segment	= 
+			formDataSegment( $buffer, $boundary, \%fields, \@uploads );
+			
+			if ( hasErrors( %{$segment} ) ) {
 				%err = %{$segment->{error}};
 				append( 
 					\%err, 'formData', 
@@ -1368,8 +1384,8 @@ sub formData {
 				);
 				
 				# Cleanup form data stream
-				close( $state->{stream} );
-				unlink( $state->{name} );
+				close( %{$state->{stream}} );
+				unlink( %{$state->{name}} );
 				return { fields => [], files => [], error => \%err };
 			}
 			
@@ -1379,8 +1395,8 @@ sub formData {
 	}
 	
 	# Cleanup form data stream
-	close( $state->{stream} );
-	unlink( $state->{name} );
+	close( %{$state->{stream}} );
+	unlink( %{$state->{name}} );
 	
 	$data{'fields'}	= \%fields;
 	$data{'files'}	= \@uploads;
