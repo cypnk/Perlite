@@ -1408,12 +1408,12 @@ sub formData {
 sub validateCaptcha {
 	my ( $snonce )	= @_;
 	
-	my %data	= formData();
+	my $data	= formData();
 	unless ( hasErrors( $data ) ) {
 		return 0;
 	}
 	
-	my %fields	= %data->{fields} // {};
+	my %fields	= %{$data->{fields}} // {};
 	unless ( keys %fields ) {
 		return 0;
 	}
@@ -2461,15 +2461,15 @@ sub extractCC {
 	my @subs	= map { [split(/:/, $_)] } split(/,\s*/, $urls );
 	my $out		= '';
 	
-	foreach my $track ( @$subs ) {
+	foreach my $track ( @subs ) {
 		my %data	= {};
 		my $len		= scalar( $track );
 		
 		# Only a track
 		if ( $len == 1 ) {
 			%data	= (
-				src		= @$track[0],
-				isdefault	= ''
+				src		=> @$track[0],
+				isdefault	=> ''
 			);
 			
 			$out	.= 
@@ -2480,8 +2480,8 @@ sub extractCC {
 		# Not a language, but is default
 		if ( $len == 2 && lc( @$track[1] ) eq 'default' ) {
 			%data	= (
-				src		= @$track[0],
-				isdefault	= 'default'
+				src		=> @$track[0],
+				isdefault	=> 'default'
 			);
 			
 			$out	.= 
@@ -2491,9 +2491,9 @@ sub extractCC {
 		# Language, but not default
 		} elsif ( $len == 2 ) {
 			%data	= (
-				src		= @$track[0],
-				lang		= @$track[1],
-				isdefault	= ''
+				src		=> @$track[0],
+				lang		=> @$track[1],
+				isdefault	=> ''
 			);
 			
 			$out	.= 
@@ -2503,9 +2503,9 @@ sub extractCC {
 		
 		# Language and is default
 		%data	= (
-			src		= @$track[0],
-			lang		= @$track[1],
-			isdefault	= 'default'
+			src		=> @$track[0],
+			lang		=> @$track[1],
+			isdefault	=> 'default'
 		);
 		$out	.= replace( template( 'tpl_cc_embed' ), %data );
 	}
@@ -3100,7 +3100,7 @@ sub paginate {
 		} );
 	}
 	
-	if ( $idx < $total )
+	if ( $idx < $total ) {
 		if ( $idx + 1 < $total ) {
 			push( @links, { 
 				text		=> '{page_next}', 
@@ -3149,7 +3149,9 @@ sub hashPassword {
 	
 	# Generate new salt, if empty
 	$salt		//= genSalt( 16 );
-	$rounds		//= HASH_ROUNDS;
+	
+	# Password hashing rounds
+	$rounds		//= settings( 'hash_rounds', 'int', 10000 );
 	
 	# Crypt-friendly blocks
 	my @chunks	= 
