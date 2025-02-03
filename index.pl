@@ -341,10 +341,12 @@ sub hook {
 	
 	# Trigger event
 	for my $handler ( @{$handlers{$name}} ) {
+		# Strict refs workaround
+		my $h = \&{$handler};
 		
 		# Execute handlers in order and store in output
 		$output{$name} = 
-		&{$handler}( $name, $output{$name} // {}, $params );
+		$h->( $name, $output{$name} // {}, $params );
 	}
 }
 
