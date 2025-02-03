@@ -712,6 +712,12 @@ sub fileSave {
 	fileWrite( $path, $data );
 }
 
+# Send output buffer to client and enable auto flush
+sub startFlush() {
+	STDOUT->flush();
+	STDOUT->autoflush( 1 );
+}
+
 
 
 
@@ -2137,6 +2143,7 @@ sub sendFile {
 	binmode( STDOUT );
 	open( my $fh, '<:raw', $rs ) or exit 1;
 	
+	startFlush();
 	if ( $stream ) {
 		my $buf;
 		while ( read( $fh, $buf, $bsize ) ) {
@@ -2204,8 +2211,8 @@ sub streamRanged {
 	my $limit	= 0;
 	my $buf;
 	my $chunk;
-	local $|	= 1;	# Temporarily disable output buffering
 	
+	startFlush();
 	foreach my $range ( @{$ranges} ) {
 		my ( $start, $end ) = @{$range};
 		
