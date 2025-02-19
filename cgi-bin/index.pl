@@ -33,7 +33,7 @@ use 5.32.1;
 use constant {
 	
 	# Writable content location
-	STORAGE_DIR		=> "storage",
+	STORAGE_DIR		=> "../storage",
 	
 	# Uploaded file subfolder in storage
 	UPLOADS			=> "uploads",
