@@ -2330,78 +2330,338 @@ sub allowedTags {
 		return %whitelist;
 	}
 	
-	state %default_whitelist = (
-		"p"		=> [ "style", "class", "align", 
-				"data-pullquote", "data-video", 
-				"data-media" ],
+	my %default_json =<<"JSON";
+{
+		"p"	: { 
+			"attributes"	: [ 
+				"style", "class", "align", 
+				"data-pullquote", "data-video", "data-media" 
+			]
+		},
 		
-		"div"		=> [ "style", "class", "align" ],
-		"span"		=> [ "style", "class" ],
-		"br"		=> [ "style", "class" ],
-		"hr"		=> [ "style", "class" ],
+		"div"	: { 
+			"attributes"	: [ "style", "class", "align" ]
+		},
 		
-		"h1"		=> [ "style", "class" ],
-		"h2"		=> [ "style", "class" ],
-		"h3"		=> [ "style", "class" ],
-		"h4"		=> [ "style", "class" ],
-		"h5"		=> [ "style", "class" ],
-		"h6"		=> [ "style", "class" ],
+		"span"	: { 
+			"attributes"	: [ "style", "class" ]
+		},
 		
-		"strong"	=> [ "style", "class" ],
-		"em"		=> [ "style", "class" ],
-		"u"		=> [ "style", "class" ],
-		"strike"	=> [ "style", "class" ],
-		"del"		=> [ "style", "class", "cite" ],
+		"br"	: { 
+			"attributes"	: [ "style", "class" ],
+			"self_closing"	: 1,
+			"no_nest"	: 1
+		},
 		
-		"ol"		=> [ "style", "class" ],
-		"ul"		=> [ "style", "class" ],
-		"li"		=> [ "style", "class" ],
+		"hr"	: { 
+			"attributes"	: [ "style", "class" ],
+			"self_closing"	: 1,
+			"no_nest"	: 1
+		},
 		
-		"code"		=> [ "style", "class" ],
-		"pre"		=> [ "style", "class" ],
+		"h1"	: { 
+			"attributes"	: [ "style", "class" ]
+		},
+		"h2"	: { 
+			"attributes"	: [ "style", "class" ]
+		},
+		"h3"	: { 
+			"attributes"	: [ "style", "class" ]
+		},
+		"h4"	: { 
+			"attributes"	: [ "style", "class" ]
+		},
+		"h5"	: { 
+			"attributes"	: [ "style", "class" ]
+		},
+		"h6"	: { 
+			"attributes"	: [ "style", "class" ]
+		},
 		
-		"sup"		=> [ "style", "class" ],
-		"sub"		=> [ "style", "class" ],
+		"strong"	: { 
+			"attributes"	: [ "style", "class" ]
+		},
+		"em"	: { 
+			"attributes"	: [ "style", "class" ]
+		},
+		"u"	: { 
+			"attributes"	: [ "style", "class" ]
+		},
+		"strike"	: { 
+			"attributes"	: [ "style", "class" ]
+		},
+		"del"	: { 
+			"attributes"	: [ "style", "class", "cite", "datetime" ],
+			"uri_attr"	: [ "cite" ]
+		},
+		"ins"	: { 
+			"attributes"	: [ "style", "class", "cite", "datetime" ],
+			"uri_attr"	: [ "cite" ]
+		},
 		
-		"a"		=> [ "style", "class", "rel", 
-				"title", "href" ],
+		"ol"	: {
+			"attributes"	: [ "style", "class" ]
+		},
+		"ul"	: {
+			"attributes"	: [ "style", "class" ]
+		},
+		"li"	: {
+			"attributes"	: [ "style", "class" ]
+		},
 		
-		"img"		=> [ "style", "class", "src", "height", "width", 
-				"alt", "longdesc", "title", "hspace", 
-				"vspace", "srcset", "sizes",
-				"data-srcset", "data-src", 
-				"data-sizes" ],
-		"figure"	=> [ "style", "class" ],
-		"figcaption"	=> [ "style", "class" ],
-		"picture"	=> [ "style", "class" ],
+		"code"	: {
+			"attributes"	: [ "style", "class" ],
+			"no_nest"	: 1
+		},
+		"pre"	: {
+			"attributes"	: [ "style", "class" ]
+		},
 		
-		"table"		=> [ "style", "class", "cellspacing", 
-					"border-collapse", 
-					"cellpadding" ],
-		"thead"		=> [ "style", "class" ],
-		"tbody"		=> [ "style", "class" ],
-		"tfoot"		=> [ "style", "class" ],
-		"tr"		=> [ "style", "class" ],
-		"td"		=> [ "style", "class", "colspan", 
-				"rowspan" ],
-		"th"		=> [ "style", "class", "scope", 
-				"colspan", "rowspan" ],
+		"sup"	: {
+			"attributes"	: [ "style", "class" ]
+		},
+		"sub"	: {
+			"attributes"	: [ "style", "class" ]
+		},
 		
-		"caption"	=> [ "style", "class" ],
-		"col"		=> [ "style", "class" ],
-		"colgroup"	=> [ "style", "class" ],
+		"a"	: {
+			"attributes"	: [ 
+				"style", "class", "rel", "title", "href" 
+			],
+			"uri_attr"	: [ "href" ]
+		},
 		
-		"summary"	=> [ "style", "class" ],
-		"details"	=> [ "style", "class" ],
+		"img"	: {
+			"attributes"	: [ 
+				"style", "class", "src", "height", "width", 
+				"alt", "title", "srcset", "sizes",
+				"data-srcset", "data-src", "data-sizes" 
+			],
+			"uri_attr"	: [ 
+				"data-src", "data-srcset", "srcset", "src" 
+			],
+			"no_nest"	: 1
+		},
 		
-		"q"		=> [ "style", "class", "cite" ],
-		"cite"		=> [ "style", "class" ],
-		"abbr"		=> [ "style", "class" ],
-		"blockquote"	=> [ "style", "class", "cite" ]
-	);
-	
+		"figure"	: {
+			"attributes"	: [ "style", "class" ]
+		},
+		"figcaption"	: {
+			"attributes"	: [ "style", "class" ]
+		},
+		"picture"	: {
+			"attributes"	: [ "style", "class" ]
+		},
+		
+		"table"	: {
+			"attributes"	: [ 
+				"style", "class", "cellspacing", 
+				"border-collapse", "cellpadding" 
+			]
+		},
+		"thead"	: {
+			"attributes"	: [ "style", "class" ]
+		},
+		"tbody"	: {
+			"attributes"	: [ "style", "class" ]
+		},
+		"tfoot"	: {
+			"attributes"	: [ "style", "class" ]
+		},
+		"tr"	: {
+			"attributes"	: [ "style", "class" ]
+		},
+		"td"	: {
+			"attributes"	: [ 
+				"style", "class", "colspan", "rowspan" 
+			]
+		},
+		"th"	: {
+			"attributes"	: [ 
+				"style", "class", "scope", "colspan", "rowspan" 
+			]
+		},
+		
+		"caption"	: {
+			"attributes"	: [ "style", "class" ]
+		},
+		"col"	: {
+			"attributes"	: [ "style", "class" ]
+		},
+		"colgroup"	: {
+			"attributes"	: [ "style", "class" ]
+		},
+		
+		"address"	: {
+			"attributes"	: [ "style", "class" ]
+		},
+		
+		"summary"	: {
+			"attributes"	: [ "style", "class" ]
+		},
+		"details"	: {
+			"attributes"	: [ "style", "class" ]
+		},
+		
+		"q"	: {
+			"attributes"	: [ "style", "class", "cite" ],
+			"uri_attr"	: [ "cite" ],
+			"no_nest"	: 1
+		},
+		"cite"	: {
+			"attributes"	: [ "style", "class" ]
+		},
+		"abbr"	: {
+			"attributes"	: [ "style", "class", "title" ]
+		},
+		"dfn"	: {
+			"attributes"	: [ "style", "class", "title" ]
+		},
+		"blockquote"	: {
+			"attributes"	: [ "style", "class", "cite" ],
+			"uri_attr"	: [ "cite" ]
+		}
+}
+JSON
+	my %default_whitelist = jsonDecode( $default_json );
 	%whitelist	= setting( 'tag_whitelist', 'hash', \%default_whitelist );
 	return %whitelist;
+}
+
+# Intercept HTML tag attribute(s)
+sub parseAttributes {
+	my ( $params )	= @_;
+	my %attrs;
+	while ( $params =~ m/(\w+)\s*=\s*"([^"]*)"/g ) {
+		$attrs{$1} = $2;
+	}
+	
+	return \%attrs;
+}
+
+# Load given HTML segment into a hash
+sub parseHTML {
+	my ( $html ) = @_;
+	my $tree = {};
+	
+	# Limited set of self-closing tags
+	state %closing = 
+	map { 
+		$_ => 1 
+	} qw(area base br col embed hr img input link meta param source track wbr);
+
+	while ( $html =~ m{<(\w+)([^>]*)\s*/?>|<(\w+)([^>]*)>(.*)</\3>}gs ) {
+		if ( defined $1 && $closing{$1} ) {
+			my $tag		= $1;
+			my $attr	= unifySpaces( $2 );
+			
+			$tree->{$tag} = {
+				attributes => parseAttributes( $attr ),
+				content    => undef
+			};
+		} elsif ( defined $3 ) {
+			my $tag		= $3;
+			my $attr	= unifySpaces( $4 );
+			my $content	= trim( $5 );
+			
+			$tree->{$tag} = {
+				attributes => parseAttributes( $attr ),
+				content    => 
+					$content =~ /</ ? 
+					parseHTML( $content ) : $content
+			};
+		}
+	}
+	
+	return $tree;
+}
+
+# Sanitize tag attributes against whitelist
+sub filterAttribute {
+	my ( $tag, $attr_name, $data )	= @_;
+	if ( $data eq '' ) {
+		return '';
+	}
+	
+	my $whitelist	= allowedTags();
+	# URI types get special treatment
+	if ( 
+		grep{ $_ eq $attr_name } 
+			@{$whitelist->{$tag}{attributes}{uri_attr} // ()} 
+	) {
+		$data	= unifySpaces( $data );
+		
+		# Strip tags
+		$data	=~ s/<.*?>//g;
+		
+		return trim( $data );
+	}
+	
+	# Entities for everything else
+	return escapeCode( $data );
+}
+
+# Build HTML block from nested hash of tags and their attributes 
+sub buildHTML {
+	my ( %node )	= @_;
+	my $out	= '';
+	
+	my $whitelist	= allowedTags();
+	foreach my $tag ( keys %{$node} ) {
+		# Skip unless tag exists in whitelist
+		next unless exists $whiltelist->{$tag};
+		
+		my $attr	= '';
+		if ( exists( $node->{$tag}{attributes} ) ) {
+			foreach my $attr_name ( keys %{node->{$tag}{attributes}} ) {
+				# Skip unless attribute exists for this tag
+				next unless grep { $_ eq $attr_name } 
+					@{$whitelist->{$tag}{attributes} // {}};
+				
+				my $data	= 
+				$node->{$tag}{attributes}{$attr_name} // '';
+				
+				$data		= 
+				filterAttribute( $tag, $attr_name, $data );
+				
+				$attr		.= 
+				sprintf( ' %s="%s"', $attr_name, $data );
+			}
+		}
+		
+		my $content	= '';
+		if ( exists( $node->{$tag}{content} ) ) {
+			# Ignore content if this is meant to be self-closing
+			if ( $whitelist->{$tag}{self_closing} // 0 ) {
+				$out .= sprintf( '<%s%s/>', $tag, $attr );
+				next;
+			}
+			
+			if ( ref( $node->{$tag}{content} ) eq 'HASH' ) {
+				# Ignore nesting if it isn't allowed
+				if ( $whitelist->{$tag}{no_nest} // 0 ) {
+					$content	= 
+					escapeCode( 
+						$node->{$tag}{content}
+					);
+				} else {
+					$content	= 
+					buildHTML( $node->{$tag}{content} );
+				}
+			} else {
+				$content	= 
+				escapeCode( $node->{$tag}{content} );
+			}
+			
+			$out .= sprintf( '<%s%s>%s</%s>', $tag, $attr, $content );
+			
+		} else {
+			# Self-closing
+			$out .= sprintf( '<%s%s/>', $tag, $attr );
+		}
+	}
+	
+	return $out;
 }
 
 # Wrap sent HTML with protected placeholders, optionally adding new tags
