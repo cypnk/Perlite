@@ -2601,9 +2601,9 @@ sub filterAttribute {
 	return escapeCode( $data );
 }
 
-# Build HTML block from nested hash of tags and their attributes 
+# Build HTML block from nested hash of tags and their attributes
 sub buildHTML {
-	my ( %node )	= @_;
+	my ( $node )	= @_;
 	my $out	= '';
 	
 	my $whitelist	= allowedTags();
@@ -2629,36 +2629,36 @@ sub buildHTML {
 			}
 		}
 		
+		# Ignore content if this is meant to be self-closing
+		if ( $whitelist{$tag}{self_closing} // 0 ) {
+			$out .= sprintf( '<%s%s/>', $tag, $attr );
+			next;
+		}
+		
+		# No content? Close tag
+		unless( exists( $node->{$tag}{content} ) ) {
+			$out .= sprintf( '<%s%s></%s>', $tag, $attr, $tag );
+			next;
+		}
+		
 		my $content	= '';
-		if ( exists( $node->{$tag}{content} ) ) {
-			# Ignore content if this is meant to be self-closing
-			if ( $whitelist->{$tag}{self_closing} // 0 ) {
-				$out .= sprintf( '<%s%s/>', $tag, $attr );
-				next;
-			}
-			
-			if ( ref( $node->{$tag}{content} ) eq 'HASH' ) {
-				# Ignore nesting if it isn't allowed
-				if ( $whitelist->{$tag}{no_nest} // 0 ) {
-					$content	= 
-					escapeCode( 
-						$node->{$tag}{content}
-					);
-				} else {
-					$content	= 
-					buildHTML( $node->{$tag}{content} );
-				}
-			} else {
+		if ( ref( $node->{$tag}{content} ) eq 'HASH' ) {
+			# Ignore nesting if it isn't allowed
+			if ( $whitelist{$tag}{no_nest} // 0 ) {
 				$content	= 
 				escapeCode( $node->{$tag}{content} );
+			
+			# Move on to child nodes
+			} else {
+				$content	= 
+				buildHTML( $node->{$tag}{content} );
 			}
-			
-			$out .= sprintf( '<%s%s>%s</%s>', $tag, $attr, $content );
-			
 		} else {
-			# Self-closing
-			$out .= sprintf( '<%s%s/>', $tag, $attr );
+			$content	= 
+			escapeCode( $node->{$tag}{content} );
 		}
+		
+		$out .= sprintf( '<%s%s>%s</%s>', $tag, $attr, $content );
 	}
 	
 	return $out;
