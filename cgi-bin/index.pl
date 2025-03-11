@@ -2539,19 +2539,26 @@ sub parseAttributes {
 	return \%attrs;
 }
 
-# Load given HTML segment into a hash
-sub parseHTML {
-	my ( $html ) = @_;
-	my $tree = {};
-	
+# Check if given tag matches limited set of self-closing tags
+sub isSelfClosing {
+	my ( $tag )	= @_;
 	# Limited set of self-closing tags
 	state %closing = 
 	map { 
 		$_ => 1 
 	} qw(area base br col embed hr img input link meta param source track wbr);
+	
+	return 0 unless exists( $closing{$tag} );
+	return 1;
+}
 
+# Load given HTML segment into a hash
+sub parseHTML {
+	my ( $html ) = @_;
+	my $tree = {};
+	
 	while ( $html =~ m{<(\w+)([^>]*)\s*/?>|<(\w+)([^>]*)>(.*)</\3>}gs ) {
-		if ( defined $1 && $closing{$1} ) {
+		if ( defined $1 && isSelfClosing( $1 ) ) {
 			my $tag		= $1;
 			my $attr	= unifySpaces( $2 );
 			
@@ -2601,6 +2608,39 @@ sub filterAttribute {
 	return escapeCode( $data );
 }
 
+# Raw collapse of HTML node to text
+sub flattenNode {
+	my ( $node )	= @_;
+	my $out	= '';
+	
+	foreach my $tag ( keys %{$node} ) {
+		my $attr = '';
+		foreach my $attr_name ( keys %{node->{$tag}{attributes}} ) {
+			$attr .= sprintf( ' %s="%s"', $attr_name, $data );
+		}
+		
+		if ( isSelfClosing( $tag ) ) {
+			$out .= sprintf( '<%s%s />', $tag, $attr );
+			next;
+		}
+		
+		unless( exists( $node->{$tag}{content} ) ) {
+			$out .= sprintf( '<%s%s></%s>', $tag, $attr, $tag );
+			next;
+		}
+		
+		my $content	= '';
+		if ( ref( $node->{$tag}{content} ) eq 'HASH' ) {
+			$content = flattenNode( $node );
+		} else {
+			$content = $node->{$tag}{content};
+		}
+		$out .= sprintf( '<%s%s>%s</%s>', $tag, $attr, $content );
+	}
+	
+	return $out;
+}
+
 # Build HTML block from nested hash of tags and their attributes
 sub buildHTML {
 	my ( $node )	= @_;
@@ -2630,8 +2670,8 @@ sub buildHTML {
 		}
 		
 		# Ignore content if this is meant to be self-closing
-		if ( $whitelist{$tag}{self_closing} // 0 ) {
-			$out .= sprintf( '<%s%s/>', $tag, $attr );
+		if ( isSelfClosing( $tag ) || $whitelist{$tag}{self_closing} // 0 ) {
+			$out .= sprintf( '<%s%s />', $tag, $attr );
 			next;
 		}
 		
@@ -2643,15 +2683,13 @@ sub buildHTML {
 		
 		my $content	= '';
 		if ( ref( $node->{$tag}{content} ) eq 'HASH' ) {
-			# Ignore nesting if it isn't allowed
-			if ( $whitelist{$tag}{no_nest} // 0 ) {
-				$content	= 
-				escapeCode( $node->{$tag}{content} );
-			
-			# Move on to child nodes
+			# Flatten nested content if nesting isn't allowed
+			if ( $self->{whitelist}{$tag}{no_nest} // 0 ) {
+				my $temp = flattenNode( $node->{$tag}{content} );
+				$content = escapeCode( $temp );
 			} else {
-				$content	= 
-				buildHTML( $node->{$tag}{content} );
+				# Move on to child nodes
+				$content = $self->buildHTML( $node->{$tag}{content} );
 			}
 		} else {
 			$content	= 
