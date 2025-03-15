@@ -289,6 +289,17 @@ sub verifyDate {
 	return 1;
 }
 
+# Ensure sent names are handler key appropriate, returns '' on failiure
+sub eventName {
+	my ( $self, $name )	= @_;
+	return '' if !defined( $name );
+	return '' if ref( $name );
+	
+	return lc( unifySpaces( "$name", '_' ) ) if $name =~ /.+/;
+	
+	return '';
+}
+
 # Hooks and extensions
 sub hook {
 	my ( $data, $out )	= @_;
@@ -297,32 +308,38 @@ sub hook {
 	
 	$out		//= 0;
 	
-	# No event?
-	return {} unless ( $data->{event} );
-	
 	# Hook event name
-	my $name	= lc( unifySpaces( $data->{event}, '_' ) );
+	my $name	= eventName( $data->{event} // '' );
+	return {} unless $name ne '';
 	
 	# Register new handler?
 	if ( $data->{handler} ) {
-		# Safe handler name
-		my $handler	= unifySpaces( $data->{handler}, '' );
+		my $handler	= $data->{handler};
 		my $is_code	= ref( $handler ) eq 'CODE';
-		
+		my $is_sub	= !ref( $handler ) && defined( \&{$handler} );
 		# Check if subroutine exists and doesn't return undef
-		return {} unless defined( &{$handler} ) || $is_code;
-		
+		return {} unless $is_sub || $is_code;
+
+		# Safe handler name
+		$handler	= unifySpaces( $handler ) unless $is_code;
 		# Limit hook to current package scope
 		my $pkg		= __PACKAGE__;
-		my $routine	= $is_code ? *{$handler}{NAME} : $handler;
-		unless ( $routine =~ /^${pkg}::/ ) {
+		unless ( !$is_code && $handler !~ /^${pkg}::/ ) {
 			return {};
 		}
 		
 		# Initialize event
 		$handlers{$name} //= [];
 		
-		push( @{$handlers{$name}}, $handler );
+		# Skip duplicate handlers for this event and add handler
+		unless (
+			grep { 
+				( ref( $_ ) eq 'CODE' && $_ == $handler ) || 
+				( !ref( $_ ) && $_ eq $handler ) 
+			} @{$handlers{$name}}
+		) {
+			push( @{$handlers{$name}}, $handler );
+		}
 		return {};
 	}
 	
@@ -341,12 +358,22 @@ sub hook {
 	
 	# Trigger event
 	for my $handler ( @{$handlers{$name}} ) {
-		# Strict refs workaround
-		my $h = \&{$handler};
+		my $temp;
+		eval {
+			# Trigger with called event name, previous output, and params
+			$temp =
+			( ref( $handler ) eq 'CODE' ) ? 		
+				$handler->( $name, $output{$name} // {}, $params ) // {} : 
+				\&{$handler}->( $name, $output{$name} // {}, $params ) // {};
+		};
 		
-		# Execute handlers in order and store in output
-		$output{$name} = 
-		$h->( $name, $output{$name} // {}, $params );
+		if ( $@ ) {
+			# Skip saving output
+			next;
+		}
+		
+		# Merge temp with current output
+		$output{$name} = { %$output{$name}, %$temp };
 	}
 }
 
