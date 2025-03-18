@@ -378,7 +378,7 @@ sub hook {
 }
 
 # Get allowed file extensions, content types, and file signatures ("magic numbers")
-sub sub mimeList {
+sub mimeList {
 	state %mime_list	= {};
 	return %mime_list if keys %mime_list;
 	
