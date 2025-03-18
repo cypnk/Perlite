@@ -378,33 +378,32 @@ sub hook {
 }
 
 # Get allowed file extensions, content types, and file signatures ("magic numbers")
-sub mimeList { 
-	state %mime_list = ();
-	if ( keys %mime_list ) {
-		return %mime_list;
-	}
+sub sub mimeList {
+	state %mime_list	= {};
+	return %mime_list if keys %mime_list;
 	
-	my $data = getRawData();
+	my $data	= getRawData();
 	
 	# Mime data block
-	while ( $data =~ /^(?<mime>--\s*MIME\s*data:\s*\n.*?\n--\s*End\s*mime\s*?data\s*)/msgi ) {
-		my $find = $+{mime};
-		trim( \$find );
-		
-		# Extension, type, and file signature(s)
-		while ( $find =~ /^(?<ext>\S+)\s+(?<type>\S+)\s+(?<sig>.*?)\s*$/mg ) {
-			my ( $ext, $type, $sig ) = ( $+{ext}, $+{type}, $+{sig} );
-			if ( ! defined( $type ) ) {
-				$type = 'application/octet-stream';
-			}
-			if ( ! defined( $sig ) ) {
-				$sig = '';
-			}
-			my @sig = split( /\s+/, $sig );
-			$mime_list{$ext} = { type => $type, sig => \@sig };
-		}
+	unless ( $data =~ /--\s*MIME\s*data\s*:\s*\n(?<mime>.*?)\n--\s*End\s*MIME\s*data\s*/msi ) {
+		return {};
 	}
 	
+	my $find = $+{mime};
+	trim( \$find );
+	
+	while ( $find =~ /^(?<ext>\S+)\s+(?<type>\S+)\s*(?<sig>.*?)\s*$/mg ) {
+		my ( $ext, $type, $sig ) = ( $+{ext}, $+{type}, $+{sig} );
+		$type	//= 'application/octet-stream';
+		$sig	//= '';
+			
+		my @sig = split( /\s+/, $sig );
+		$mime_list->{$ext} = { type => $type, sig => \@sig };
+	}
+	
+	unless ( keys %mime_list ) {
+		return {};
+	}
 	return %mime_list;
 }
 
