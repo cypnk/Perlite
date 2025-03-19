@@ -5,14 +5,18 @@ package Perlite::Models::Model;
 use strict;
 use warnings;
 
+use Carp;
+
 sub new { 
 	my ( $class, $args )	= @_;
 	if ( !defined $args->{controller} ) {
-		die "Controller required for Model";
+		croak "Controller required for Model";
 	}
 	
 	my $self	= {
-		controller	=> $args->{controller}
+		controller	=> $args->{controller},
+		data		=> 
+		$args->{controller}->{settings}->{main}->getData()
 	};
 	
 	bless	$self, $class;
