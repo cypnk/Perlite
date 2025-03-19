@@ -104,9 +104,13 @@ sub getController {
 sub debugState {
 	my ( $self )	= @_;
 	unless( defined( $self->{is_debug} ) ) {
+		my $mode	= lc( $ENV{PERLITE_MODE} // '' );
+		
+		# Possible "Not in Production" states
+		my @debug	= qw( alpha beta dev debug test );
+		
 		$self->{is_debug} = 
-		!!( defined( $ENV{PERLITE_MODE} ) && 
-			$ENV{PERLITE_MODE} eq 'development' );
+		scalar grep { $mode =~ /\Q$_\E/ } @debug ? 1 : 0;
 	}
 	
 	return $self->{is_debug};
