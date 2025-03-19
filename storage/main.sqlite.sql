@@ -340,9 +340,13 @@ CREATE TABLE node_meta (
 	published DATETIME,
 	hierarchy TEXT,
 	
+	-- Moved to top when displaying results
+	is_pinned INTEGER NOT NULL DEFAULT 1 
+		CHECK ( is_pinned IN ( 0, 1 ) ),
+	
 	-- If true, don't publish regardless of pub date
 	is_draft INTEGER NOT NULL DEFAULT 1 
-		CHECK ( is_direct IN ( 0, 1 ) ),
+		CHECK ( is_draft IN ( 0, 1 ) ),
 	
 	-- Allow this node to be addressed by node_id directly
 	is_direct INTEGER NOT NULL DEFAULT 0 
@@ -365,6 +369,7 @@ CREATE INDEX idx_node_updated ON node_meta ( updated DESC )
 	WHERE updated IS NOT NULL;-- --
 CREATE INDEX idx_node_published ON node_meta ( published DESC )
 	WHERE published IS NOT NULL;-- --
+CREATE INDEX idx_node_pinned ON node_meta ( is_pinned );-- --
 CREATE INDEX idx_node_draft ON node_meta ( is_draft );-- --
 CREATE INDEX idx_node_direct ON node_meta ( is_direct );-- --
 CREATE INDEX idx_node_settings ON node_meta ( setting_id ) 
@@ -386,6 +391,8 @@ CREATE VIEW node_view AS SELECT
 	meta.updated AS updated,
 	meta.published AS published,
 	meta.is_direct AS is_direct,
+	meta.is_draft AS is_draft,
+	meta.is_pinned AS is_pinned,
 	
 	types.label AS type_label,
 	types.handler AS type_handler,
