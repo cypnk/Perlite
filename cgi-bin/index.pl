@@ -1,16 +1,19 @@
 #!/usr/bin/perl -wT
 
+# Perl version
+use 5.32.1;
+
 package Perlite;
 
 # Basic security
 use strict;
 use warnings;
 
-
 # Default encoding
 use utf8;
 
 # Standard modules in use
+use Carp;
 use MIME::Base64;
 use File::Basename;
 use File::Copy;
@@ -24,8 +27,13 @@ use Time::HiRes ();
 use Time::Piece;
 use JSON qw( decode_json encode_json );
 
-# Perl version
-use 5.32.1;
+use lib '../lib';
+use Perlite::Filter;
+
+BEGIN {
+	# Remove in production
+	$ENV{PERLITE_MODE}	= 'development';
+}
 
 
 # Default settings 
@@ -98,124 +106,6 @@ sub textStartsWith {
 	return substr( $text, 0, $nl ) eq $needle;
 }
 
-# Find differences between blocks of text
-sub findDiffs {
-	my ( $oblock, $eblock )	= @_;
-	
-	return {} unless defined( $oblock ) && !ref( $oblock );
-	return {} unless defined( $eblock ) && !ref( $eblock );
-	
-	# Presets
-	$oblock		=~ s/\r\n|\r/\n/g;
-	$eblock		=~ s/\r\n|\r/\n/g;
-	
-	if ( $eblock eq $oblock ) {
-		return { 
-			total	=> 0, 
-			added	=> 0, 
-			deleted	=> 0, 
-			changed	=> 0, 
-			diffs	=> [] 
-		};
-	}
-	
-	my @original	= split /\n/, $oblock, -1;
-	my @edited	= split /\n/, $eblock, -1;
-	
-	# Line sizes
-	my $olen	= scalar( @original );
-	my $elen	= scalar( @edited );
-	my $max_lines	= ( $olen > $elen ) ? $olen : $elen;
-	
-	
-	# Totals
-	my $added	= 0;
-	my $deleted	= 0;
-	my $changed	= 0;
-	
-	my @diffs;
-	
-	for ( my $i = 0; $i < $max_lines; $i++ ) {
-		# No change? Skip
-		next if defined( $edited->[$i] ) && 
-			defined( $original->[$i] ) && 
-			$edited->[$i] eq $original->[$i];
-		
-		# Added lines
-		if ( defined( $edited->[$i] ) && !defined( $original->[$i] ) ) {
-			push( @diffs, { 
-				line	=> $i, 
-				change	=> "+", 
-				text	=> $edited->[$i] 
-			} );
-			$added++;
-			next;
-		} 
-		
-		# Deleted lines
-		if ( !defined( $edited->[$i] ) && defined( $original->[$i] ) ) {
-			push( @diffs, { 
-				line	=> $i, 
-				change	=> "-", 
-				text	=> $original->[$i]
-			} );
-			
-			$deleted++;
-			next;
-		}
-		
-		# Edited lines
-		push( @diffs, { 
-			line	=> $i, 
-			change	=> "+", 
-			text	=> $edited->[$i]
-		} );
-		push( @diffs, { 
-			line	=> $i, 
-			change	=> "-", 
-			text	=> $original->[$i]
-		} );
-		$changed++;
-	}
-	
-	return { 
-		total	=> $max_lines,
-		added	=> $added, 
-		deleted	=> $deleted, 
-		changed	=> $changed,
-		diffs	=> \@diffs 
-	};
-}
-
-# Merge arrays and return unique items
-sub mergeArrayUnique {
-	my ( $items, $nitems ) = @_;
-	
-	# Check for array or return as-is
-	unless ( ref( $items ) eq 'ARRAY' ) {
-		die "Invalid parameter type for mergeArrayUnique\n";
-	}
-	
-	if ( ref( $nitems ) eq 'ARRAY' && @{$nitems} ) {
-		push ( @{$items}, @{$nitems} );
-		
-		# Filter duplicates
-		my %dup;
-		@{$items} = grep { !$dup{$_}++ } @{$items};
-	}
-	
-	return $items;
-}
-
-# Filter number within min and max range, inclusive
-sub intRange {
-	my ( $val, $min, $max ) = @_;
-	my $out = sprintf( "%d", "$val" );
- 	
-	return 
-	( $out > $max ) ? $max : ( ( $out < $min ) ? $min : $out );
-}
-
 # Get raw __DATA__ content as text
 sub getRawData {
 	state $data;
@@ -234,46 +124,6 @@ sub getRawData {
 
 
 
-
-# Trim leading and trailing space 
-sub trim {
-	my ( $txt ) = @_;
-	$$txt	=~ s/^\s+|\s+$//g;
-}
-
-# Usable text content
-sub pacify {
-	my ( $term ) = @_;
-	$term	=~ s/
-		^\s*				# Remove leading spaces
-		| [^[:print:]\x00-\x1f\x7f]	# Unprintable characters
-		| [\x{fdd0}-\x{fdef}]		# Invalid Unicode ranges
-		| [\p{Cs}\p{Cf}\p{Cn}]		# Surrogate or unassigned code points
-		| \s*$				# Trailing spaces
-	//gx;
-	return $term;
-}
-
-# Convert all spaces to single character
-sub unifySpaces {
-	my ( $text, $rpl, $br ) = @_;
-	
-	return '' unless defined( $text ) && $text ne '';
-	
-	$text	= pacify( $text );
-	
-	$br	//= 0;		# Preserve line breaks?
-	$rpl	//= ' ';	# Replacement space, defaults to ' '
-	
-	if ( $br ) {
-		$text	=~ s/[ \t\v\f]+/$rpl/;
-	} else {
-		$text	=~ s/[[:space:]]+/$rpl/;
-	}
-	
-	trim( \$text );
-	return $text;
-}
 
 # Decode URL encoded strings
 sub utfDecode {
@@ -311,17 +161,6 @@ sub jsonDecode {
 	
 	return {} if ( $@ );
 	return $out;
-}
-
-# Length of given string
-sub strsize {
-	my ( $str ) = @_;
-	
-	$str = pacify( $str );
-	if ( !Encode::is_utf8( $str ) ) {
-		$str = Encode::encode( 'UTF-8', $str );
-	}
-	return length( $str );
 }
 
 # Limit the date given to a maximum value of today
@@ -2880,31 +2719,6 @@ sub endProtectedTags {
 	my ( $html )		= @_;
 	
 	$$html		=~ s/__PROTECT__(.*?)__ENDPROTECT__/$1/g;
-}
-
-# Format code to HTML
-sub escapeCode {
-	my ( $code ) = @_;
-	
-	return '' if !defined( $code ) || $code eq ''; 
-	
-	if ( !Encode::is_utf8( $code ) ) {
-		$code = Encode::decode( 'UTF-8', $code );
-	}
-	
-	# Double esacped ampersand workaround
-	$code =~ s/&(?!(amp|lt|gt|quot|apos);)/&amp;/g; 
-	
-	$code =~ s/</&lt;/g;
-	$code =~ s/>/&gt;/g;
-	$code =~ s/"/&quot;/g;
-	$code =~ s/'/&apos;/g;
-	$code =~ s/\\/&#92;/g;
-	
-	$code =~ s/([^\x00-\x7F])/sprintf("&#x%X;", ord($1))/ge;
-	trim( \$code );
-	
-	return $code;
 }
 
 # TODO: Process footnotes
