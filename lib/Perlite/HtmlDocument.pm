@@ -5,7 +5,7 @@ package Perlite::HtmlDocument;
 use strict;
 use warnings;
 
-use Perlite::Util qw( jsonDecode rewind );
+use Perlite::Util qw( jsonDecode rewind utfDecode );
 use Perlite::Filter qw( trim unifySpaces escapeCode );
 use Perlite::Format qw( replace markeParagraphs );
 
@@ -134,10 +134,11 @@ sub filterAttribute {
 		grep{ $_ eq $attr_name } 
 			@{$self->{whitelist}{$tag}{attributes}{uri_attr} // ()} 
 	) {
-		$data	= unifySpaces( $data );
+		$data	= utfDecode( $data );
 		
 		# Strip tags
 		$data	=~ s/<.*?>//g;
+		$data	= unifySpaces( $data );
 		
 		# Javascript etc...
 		$data	=~ s/^javascript://i;
