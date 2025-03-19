@@ -20,7 +20,7 @@ use File::Copy;
 use File::Temp qw( tempfile tempdir );
 use File::Spec::Functions qw( catfile canonpath file_name_is_absolute rel2abs );
 use Encode;
-use Digest::SHA qw( sha1_hex sha1_base64 sha256_hex sha384_hex sha384_base64 sha512_hex hmac_sha384 );
+use Digest::SHA qw( sha1_hex sha1_base64 sha256_hex );
 use Fcntl qw( SEEK_SET O_WRONLY O_EXCL O_RDWR O_CREAT );
 use Errno qw( EEXIST );
 use Time::HiRes ();
@@ -2291,70 +2291,6 @@ sub paginate {
 
 
 
-
-# Generate random salt up to given length
-sub genSalt {
-	my ( $len ) = @_;
-	state @pool	= ( '.', '/', 0..9, 'a'..'z', 'A'..'Z' );
-	
-	return join( '', map( +@pool[rand( 64 )], 1..$len ) );
-}
-
-# Generate HMAC digest
-sub hmacDigest {
-	my ( $key, $data )	= @_;
-	my $hmac		= hmac_sha384( $data, $key );
-	
-	return unpack( "H*", $hmac );
-}
-
-# Generate a hash from given password and optional salt
-sub hashPassword {
-	my ( $pass, $salt, $rounds ) = @_;
-	
-	# Generate new salt, if empty
-	$salt		//= genSalt( 16 );
-	
-	# Password hashing rounds
-	$rounds		//= settings( 'hash_rounds', 'int', 10000 );
-	
-	# Crypt-friendly blocks
-	my @chunks	= 
-		split( /(?=(?:.{8})+\z)/s, sha512_hex( $salt . $pass ) );
-	
-	my $out		= '';	# Hash result
-	my $key		= '';	# Digest key per block
-	my $block	= '';	# Hash block
-	
-	for ( @chunks ) {
-		# Generate digest with key from crypt
-		$key	= crypt( $_, substr( sha256_hex( $_ ), 0, -2 ) );
-		$block	= hmacDigest( $key, $_ );
-		
-		# Generate hashed block from digest
-		for ( 1..$rounds ) {
-			$block	= sha384_hex( $block );
-		}
-		
-		# Add block to output
-		$out		.= sha384_hex( $block );
-	}
-	
-	return $salt . ':' . $rounds . ':' . $out;
-}
-
-# Match raw password against stored hash
-sub verifyPassword {
-	my ( $pass, $stored ) = @_;
-	
-	my ( $salt, $rounds, $spass ) = split( /:/, $stored );
-	
-	if ( $stored eq hashPassword( $pass, $salt, $rounds ) ) {
-		return 1;
-	}
-	
-	return 0;
-}
 
 # Find password for an existing user
 sub getPassword {
