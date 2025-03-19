@@ -6,8 +6,11 @@ use strict;
 use warnings;
 
 use Carp;
+use Data::Dumper;
 
-use Perlite::Filter qw( trim );
+use Perlite::Util qw( rewind );
+use Perlite::Filter qw( trim unifySpaces );
+use Perlite::FileUtil qw( storage );
 
 # Constructor
 sub new {
@@ -203,6 +206,24 @@ sub output {
 	return {} unless exists( $self->{output}{$name} );
 }
 
+# TEMP: Tester
+sub printTime {
+	my ( $self )	= @_;
+	
+	print "Content-type: text/html; charset=UTF-8\n\n";
+	print "Hello world!\n\n";
+	print "\nController: " . localtime . "\n<br />";
+	my $db	= Perlite::Models::Database->new( { 
+		db_file => 'main.db',
+		config	=> $self->{settings}
+	} );
+	$db->connect();
+	#my $mime = $self->{settings}->mimeList();
+	
+	
+	print Dumper( $db );
+	print strsize( "Hello World" );
+	print '<br />';
+}
+
 1;
-
-
