@@ -68,7 +68,7 @@ sub process {
 	my $timeout	= 
 	$params->{process_timeout} // $self->{process_timeout} // 0;
 	
-	# TODO: Debug-specific behavior with extra checks/logging etc...
+	# Debug-specific behavior with extra checks/logging etc...
 	my $is_debug	= $self->{main}->debugState();
 	
 	unless ( ref( $params ) eq 'HASH' ) {
@@ -106,7 +106,6 @@ sub process {
 					# Timeout message
 					local $SIG{ALRM} = sub {
 						$msg = "Timeout waiting for child process";
-						$self->{main}->logError( $msg );
 						die $msg;
 					};
 					
@@ -130,21 +129,18 @@ sub process {
 					# This should almost never happen, but just in case...
 					if ( $status == -1 && $retries <= 0 ) { 
 						$msg = "Failed waiting for child process";
-						$self->{main}->logError( $msg );
 						die $msg;
 					} elsif ( $status != $pid) {
 						$msg = "Unexpected child process behavior: Waitpid returned ${status}, error: $!";
-						$self->{main}->logError( $msg );
 						die $msg;
 					}
 				};
 				
 				if ( $@ ) {
-					
+					$self->{main}->logError( $msg ) if $is_debug;
 					# Timeout went badly wrong
 					if ( $@ =~ /Timeout/i ) {
 						$msg = "Child process timeout: $@";
-						$self->{main}->logError( $msg );
 						kill 'TERM', $pid
 						sleep $self->{process_sleep} // 1;
 						
@@ -154,14 +150,13 @@ sub process {
 					# Can happen sometimes on OpenBSD 7.6
 					} elsif ( $@ =~ /Failed waiting/i ) {
 						$msg = "Child process waitpid error: $@";
-						$self->{main}->logError( $msg );
 						
 					# Can happen with XAMPP on Windows 11
 					} else {
 						$msg = "Parent execution error: $@";
-						$self->{main}->logError( $msg );
 					}
 					
+					$self->{main}->logError( $msg ) if $is_debug;
 					$self->processError( $msg, $pid, $time_err );
 				}
 			}
@@ -170,7 +165,7 @@ sub process {
 		if ( $@ ) {
 			# Parent went wrong
 			$msg	= "Unexpected parent execution error: $@";
-			$self->{main}->logError( $msg );
+			$self->{main}->logError( $msg ) if $is_debug;
 			$self->processError( $msg, $pid, $parent_err );
 		}
 		
@@ -184,7 +179,7 @@ sub process {
 		if ( $@ ) {
 			# Child went wrong
 			$msg = "Error in child execution: $@";
-			$self->{main}->logError( $msg );
+			$self->{main}->logError( $msg ) if $is_debug;
 			$self->processError( $msg, $pid, $child_err );
 			exit( 1 );
 		}
@@ -192,7 +187,7 @@ sub process {
 	} else {
 		# Resource limit?
 		$msg = "Fork failed: $! ( Possible resource exhaustion or system limits exceeded )";
-		$self->{main}->logError( $msg );
+		$self->{main}->logError( $msg ) if $is_debug;
 		$self->processError( $msg, $pid, $process_err );
 		exit( 1 );
 	}
