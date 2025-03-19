@@ -68,7 +68,9 @@ sub process {
 	my $timeout	= 
 	$params->{process_timeout} // $self->{process_timeout} // 0;
 	
+	# TODO: Debug-specific behavior with extra checks/logging etc...
 	my $is_debug	= $self->{main}->debugState();
+	
 	unless ( ref( $params ) eq 'HASH' ) {
 		my $msg = 
 		ref( $params ) ? 
@@ -93,6 +95,7 @@ sub process {
 	
 	my $msg;
 	if ( my $pid = fork() ) {
+		# Work on parent process
 		eval { 
 			my @parent_args	= @{$params->{parent_args} // \@args };
 			$params->{parent}->( @parent_args );
@@ -100,8 +103,11 @@ sub process {
 			# Set timeout and wait if waiting enabled
 			if ( $self->{wait_for_child} ) {
 				eval {
+					# Timeout message
 					local $SIG{ALRM} = sub {
-						die "Timeout waiting for child process";
+						$msg = "Timeout waiting for child process";
+						$self->{main}->logError( $msg );
+						die $msg;
 					};
 					
 					alarm( $timeout ); # Set timeout
@@ -123,9 +129,13 @@ sub process {
 					
 					# This should almost never happen, but just in case...
 					if ( $status == -1 && $retries <= 0 ) { 
-						die "Failed waiting for child process";
+						$msg = "Failed waiting for child process";
+						$self->{main}->logError( $msg );
+						die $msg;
 					} elsif ( $status != $pid) {
-						die "Unexpected child process behavior: Waitpid returned ${status}, error: $!";
+						$msg = "Unexpected child process behavior: Waitpid returned ${status}, error: $!";
+						$self->{main}->logError( $msg );
+						die $msg;
 					}
 				};
 				
@@ -134,17 +144,22 @@ sub process {
 					# Timeout went badly wrong
 					if ( $@ =~ /Timeout/i ) {
 						$msg = "Child process timeout: $@";
+						$self->{main}->logError( $msg );
 						kill 'TERM', $pid
 						sleep $self->{process_sleep} // 1;
 						
 						kill 'TERM', $pid if kill 0, $pid;
 						waitpid( $pid, 0 );
 						
+					# Can happen sometimes on OpenBSD 7.6
 					} elsif ( $@ =~ /Failed waiting/i ) {
 						$msg = "Child process waitpid error: $@";
+						$self->{main}->logError( $msg );
 						
+					# Can happen with XAMPP on Windows 11
 					} else {
 						$msg = "Parent execution error: $@";
+						$self->{main}->logError( $msg );
 					}
 					
 					$self->processError( $msg, $pid, $time_err );
@@ -155,10 +170,13 @@ sub process {
 		if ( $@ ) {
 			# Parent went wrong
 			$msg	= "Unexpected parent execution error: $@";
+			$self->{main}->logError( $msg );
 			$self->processError( $msg, $pid, $parent_err );
 		}
 		
 	} elsif ( defined( $pid ) ) {
+		
+		# Work on child process
 		eval{ 
 			my @child_args	= @{$params->{child_args} // \@args};
 			$params->{child}->( @child_args );
@@ -166,6 +184,7 @@ sub process {
 		if ( $@ ) {
 			# Child went wrong
 			$msg = "Error in child execution: $@";
+			$self->{main}->logError( $msg );
 			$self->processError( $msg, $pid, $child_err );
 			exit( 1 );
 		}
@@ -173,6 +192,7 @@ sub process {
 	} else {
 		# Resource limit?
 		$msg = "Fork failed: $! ( Possible resource exhaustion or system limits exceeded )";
+		$self->{main}->logError( $msg );
 		$self->processError( $msg, $pid, $process_err );
 		exit( 1 );
 	}
