@@ -5,7 +5,9 @@ package Perlite::Models::NodeType;
 use strict;
 use warnings;
 
+use Perlite::Util qw( mergeProperties );
 use parent 'Perlite::Models::Configurable';
+
 sub new {
 	my ( $class, $args )	= @_;
 	
@@ -14,7 +16,6 @@ sub new {
 		node_type_id	=> $args->{node_type_id},
 		label		=> $args->{label},
 		handler		=> $args->{handler},
-		settings	=> $args->{settings} // {}
 	};
 	
 	$self	= mergeProperites( $self, $_self );
