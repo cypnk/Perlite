@@ -98,6 +98,95 @@ sub textStartsWith {
 	return substr( $text, 0, $nl ) eq $needle;
 }
 
+# Find differences between blocks of text
+sub findDiffs {
+	my ( $oblock, $eblock )	= @_;
+	
+	return {} unless defined( $oblock ) && !ref( $oblock );
+	return {} unless defined( $eblock ) && !ref( $eblock );
+	
+	# Presets
+	$oblock		=~ s/\r\n|\r/\n/g;
+	$eblock		=~ s/\r\n|\r/\n/g;
+	
+	if ( $eblock eq $oblock ) {
+		return { 
+			total	=> 0, 
+			added	=> 0, 
+			deleted	=> 0, 
+			changed	=> 0, 
+			diffs	=> [] 
+		};
+	}
+	
+	my @original	= split /\n/, $oblock, -1;
+	my @edited	= split /\n/, $eblock, -1;
+	
+	# Line sizes
+	my $olen	= scalar( @original );
+	my $elen	= scalar( @edited );
+	my $max_lines	= ( $olen > $elen ) ? $olen : $elen;
+	
+	
+	# Totals
+	my $added	= 0;
+	my $deleted	= 0;
+	my $changed	= 0;
+	
+	my @diffs;
+	
+	for ( my $i = 0; $i < $max_lines; $i++ ) {
+		# No change? Skip
+		next if defined( $edited->[$i] ) && 
+			defined( $original->[$i] ) && 
+			$edited->[$i] eq $original->[$i];
+		
+		# Added lines
+		if ( defined( $edited->[$i] ) && !defined( $original->[$i] ) ) {
+			push( @diffs, { 
+				line	=> $i, 
+				change	=> "+", 
+				text	=> $edited->[$i] 
+			} );
+			$added++;
+			next;
+		} 
+		
+		# Deleted lines
+		if ( !defined( $edited->[$i] ) && defined( $original->[$i] ) ) {
+			push( @diffs, { 
+				line	=> $i, 
+				change	=> "-", 
+				text	=> $original->[$i]
+			} );
+			
+			$deleted++;
+			next;
+		}
+		
+		# Edited lines
+		push( @diffs, { 
+			line	=> $i, 
+			change	=> "+", 
+			text	=> $edited->[$i]
+		} );
+		push( @diffs, { 
+			line	=> $i, 
+			change	=> "-", 
+			text	=> $original->[$i]
+		} );
+		$changed++;
+	}
+	
+	return { 
+		total	=> $max_lines,
+		added	=> $added, 
+		deleted	=> $deleted, 
+		changed	=> $changed,
+		diffs	=> \@diffs 
+	};
+}
+
 # Merge arrays and return unique items
 sub mergeArrayUnique {
 	my ( $items, $nitems ) = @_;
