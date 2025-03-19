@@ -19,6 +19,11 @@ sub new {
 	return	$self;
 }
 
+sub logError {
+	my ( $self, $msg )	= @_;
+	$self->{controller}->{settings}->{main}->logError( $msg );
+}
+
 sub property {
 	my ( $self, $prop )	= @_;
 	
