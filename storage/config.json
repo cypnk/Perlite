@@ -1,0 +1,143 @@
+{
+	"path_map"		: {},
+	"date_nice"		: "l, F j, Y",
+	"timezone"		: -5,
+	"timezone_dst"		: 1,
+	
+	"cache_ttl"		: 3200,
+	"max_url_size"		: 512,
+	"max_log_size"		: 5000000,
+	"max_search_words"	: 10,
+	
+	"hash_rounds"		: 100000,
+	
+	"stream_chunk_size"	: 4096,
+	"stream_chunk_limit"	: 50000,
+	
+	"default_basepath"	: {
+		"basepath"		: "\/",
+		"is_active"		: 1,
+		"is_maintenance"	: 0,
+		"settings"		: []
+	},
+	
+	"mail_from"		: "domain@localhost",
+	
+	"ext_whitelist"		: {
+		"text"		: "css, js, txt, html, vtt",
+		"images"	: "ico, jpg, jpeg, gif, bmp, png, tif, tiff, svg, webp", 
+		"fonts"		: "ttf, otf, woff, woff2",
+		"audio"		: "ogg, oga, mpa, mp3, m4a, wav, wma, flac",
+		"video"		: "avi, mp4, mkv, mov, ogg, ogv",
+		"documents"	: "doc, docx, ppt, pptx, pdf, epub",
+		"archives"	: "zip, rar, gz, tar"
+	},
+	
+	"security_policy"	: {
+		"content-security-policy": {
+			"default-src"			: "'none'",
+			"img-src"			: "*",
+			"base-uri"			: "'self'",
+			"style-src"			: "'self'",
+			"script-src"			: "'self'",
+			"font-src"			: "'self'",
+			"form-action"			: "'self'",
+			"frame-ancestors"		: "'self'",
+			"frame-src"			: "*",
+			"media-src"			: "'self'",
+			"connect-src"			: "'self'",
+			"worker-src"			: "'self'",
+			"child-src"			: "'self'",
+			"require-trusted-types-for"	: "'script'"
+		},
+		"permissions-policy": {
+			"accelerometer"			: [ "none" ],
+			"camera"			: [ "none" ],
+			"fullscreen"			: [ "self" ],
+			"geolocation"			: [ "none" ],
+			"gyroscope"			: [ "none" ],
+			"interest-cohort"		: [],
+			"payment"			: [ "none" ],
+			"usb"				: [ "none" ],
+			"microphone"			: [ "none" ],
+			"magnetometer"			: [ "none" ]
+		}, 
+		"common-policy": [
+			"X-XSS-Protection: 1; mode=block",
+			"X-Content-Type-Options: nosniff",
+			"X-Frame-Options: SAMEORIGIN",
+			"Referrer-Policy: no-referrer, strict-origin-when-cross-origin"
+		]
+	},
+	
+	"frame_whitelist"	: [
+		"https://www.youtube.com",
+		"https://player.vimeo.com",
+		"https://archive.org",
+		"https://peertube.mastodon.host",
+		"https://lbry.tv",
+		"https://odysee.com",
+		"https://playeur.com"
+	],
+	
+	"databases"		: [
+		{
+			"name"		: "main",
+			"dsn"		: "",
+			"version"	: "schema 0.1",
+			"types"	: [
+				{
+					"driver"	: "sqlite",
+					"dsn"		: "main.sqlite",
+					"schema"	: "main.sqlite.sql",
+					"prefix"	: "main.sqlite.install."
+				},
+				{
+					"driver"	: "mysql",
+					"dsn"		: "mysql:host=localhost;dbname=main",
+					"schema"	: "main.mysql.sql",
+					"prefix"	: "main.mysql.install."
+				}
+			]
+		},
+		{
+			"name"		: "sessions",
+			"dsn"		: "",
+			"version"	: "schema 0.1",
+			"types"	: [
+				{
+					"driver"	: "sqlite",
+					"dsn"		: "sessions.sqlite",
+					"schema"	: "sessions.sqlite.sql",
+					"prefix"	: "sessions.sqlite.install."
+				},
+				{
+					"driver"	: "mysql",
+					"dsn"		: "mysql:host=localhost;dbname=main",
+					"schema"	: "sessions.mysql.sql",
+					"prefix"	: "sessions.mysql.install."
+				}
+			]
+		},
+		{
+			"name"		: "logs",
+			"dsn"		: "",
+			"version"	: "schema 0.1",
+			"types"	: [ 
+				{
+					"driver"	: "sqlite",
+					"dsn"		: "logs.sqlite",
+					"schema"	: "logs.sqlite.sql",
+					"prefix"	: "logs.sqlite.install."
+				},
+				{
+					"driver"	: "mysql",
+					"dsn"		: "mysql:host=localhost;dbname=main",
+					"schema"	: "logs.mysql.sql",
+					"prefix"	: "logs.mysql.install."
+				}
+			]
+		}
+	]
+}
+
