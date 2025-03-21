@@ -586,11 +586,11 @@ sub selectDynamic {
 	# Fetch dynamic fields
 	my @fields		= $self->getFields( $view );
 	if ( !@fields ) {
-		$self->logError( "No fields found for view: ${view}" );
+		$self->logError( "No fields found for selectDynamic view: ${view}" );
 		return {};
 	}
 	
-	my $columns		= join( ", ", @fields ); 
+	my $columns		= join( ', ', @fields ); 
 	my ( $where, @values )	= ( '', () );
 	
 	if ( %$conds ) {
@@ -607,6 +607,60 @@ sub selectDynamic {
 		return {};
 	}
 	return $sth->fetchall_arrayref( {} );
+}
+
+# Select up through parent ID fields
+sub selectParents {
+	my ( $self, $view, $parent_key, $child_key, $conds )	= @_;
+	
+	return {} unless !ref( $view );
+	return {} unless !ref( $parent_key );
+	return {} unless !ref( $child_key );
+	
+	$parent_key	= labelName( $parent_key );
+	$child_key	= labelName( $child_key );
+	return {} unless $parent_key ne '' && $child_key ne '';
+	
+	$conds	//= {};
+	return {} unless ref( $conds ) eq 'HASH';
+	
+	my @fields	= $self->getFields( $view );
+	if ( !@fields ) {
+		$self->logError( "No fields found for selectParents view: ${view}" );
+		return {};
+	}
+	
+	my $columns		= join( ', ', @fields );
+	my $pcolumns		= join( ', ', map{ "parents.$_" } @fields );
+	my ( $where, @values )	= ( '', () );
+	
+	if ( %$conds ) {
+		$where	= 'WHERE ' . join( ' AND ', map { "$_ = ?" } keys %$conds );
+		@values	= values %$conds;
+	}
+	
+	my $sql		= 
+	"WITH RECURSIVE hierarchy AS (
+		SELECT ${columns}
+		FROM ${view}
+		${where}
+		
+		UNION 
+		SELECT ${$pcolumns}
+		FROM ${view} parents 
+			INNER JOIN hierarchy children
+			ON parents.${parent_key} = children.${child_key}
+	) SELECT ${columns} FROM hiearchy";
+	
+	my $sth	= $self->statement( $sql );
+	
+	eval { $sth->execute( @values ); };
+	if ( $@ ) {
+		$self->warnMsg( "Error in parent field select: " . $sth->errstr );
+		return {};
+	}
+	return $sth->fetchall_arrayref( {} );
+	
 }
 
 # Finish and 
