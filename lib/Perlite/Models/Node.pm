@@ -15,14 +15,13 @@ sub new {
 	my $_self	= {
 		node_id		=> $args->{node_id},
 		type		=> $args->{type},
-		parent_id	=> $args->{parent_id},
 		author_id	=> $args->{author_id},
 		title		=> $args->{title},
 		content		=> $args->{content},
 		sort_order	=> $args->{sort_order} || 0,
 	};
 	
-	$self	= mergeProperites( $self, $_self );
+	$self	= mergeProperties( $self, $_self );
 	bless $self, $class;
 	return $self;
 }
@@ -76,5 +75,7 @@ sub update {
 	return $rows;
 }
 
+
 1;
+
 
