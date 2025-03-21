@@ -6,19 +6,20 @@ use strict;
 use warnings;
 use utf8;
 
-use Perlite::Util qw( hashPassword verifyPassword genSalt hmacDigest );
+use Perlite::Util qw( hashPassword verifyPassword genSalt hmacDigest mergeProperties );
 use parent 'Perlite::Models::Configurable';
 
 sub new {
 	my ( $class, $args )	= @_;
 	my $self = $class->SUPER::new( $args );
 	
-	$self	= {
+	my $_self	= {
 		username	=> $args->{username}		// '';
 		password_hash	=> $args->{password_hash}	// '';
 		email		=> $args->{email}		// '';
 	};
 	
+	$self	= mergeProperties( $self, $_self );
 	bless	$self, $class;
 	return	$self;
 }
