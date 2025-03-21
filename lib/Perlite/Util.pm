@@ -19,7 +19,10 @@ qw( dateRfc textStartsWith utfDecode jsonDecode verifyDate append rewind
 	mergeProperties hashPassword verifyPassword genSalt hmacDigest );
 
 # Password salt character pool
-our @salt_pool	= ( '.', '/', 0..9, 'a'..'z', 'A'..'Z' );
+my @salt_pool	= ( '.', '/', 0..9, 'a'..'z', 'A'..'Z' );
+
+# Number of days in a month (non-leap)
+my @month_days	= ( 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 );
 
 # Timestamp helper
 sub dateRfc {
@@ -134,11 +137,10 @@ sub verifyDate {
 	);
 	
 	# Days in February, adjusting for leap years
-	my @dm	= ( 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 );
-	$dm[1]	= 29 if $month == 2 && $is_leap;
+	$month_days[1]	= 29 if $month == 2 && $is_leap;
 	
 	# Maximum day for given month
-	return 0 if $day > $dm[$month - 1];
+	return 0 if $day > $month_days[$month - 1];
 	
 	return 1;
 }
