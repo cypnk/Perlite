@@ -21,7 +21,7 @@ sub new {
 		settings_override	=> $args->{settings_override}	// '';
 	};
 	
-	$self	= mergeProperites( $self, $_self );
+	$self	= mergeProperties( $self, $_self );
 	bless	$self, $class;
 	return	$self;
 }
