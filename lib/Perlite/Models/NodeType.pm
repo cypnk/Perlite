@@ -18,7 +18,7 @@ sub new {
 		handler		=> $args->{handler},
 	};
 	
-	$self	= mergeProperites( $self, $_self );
+	$self	= mergeProperties( $self, $_self );
 	bless $self, $class;
 	return $self;
 }
