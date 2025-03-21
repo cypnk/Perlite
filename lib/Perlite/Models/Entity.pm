@@ -13,11 +13,12 @@ sub new {
 	my $self = $class->SUPER::new( $args );
 	my $_self	= {
 		uuid		=> $args->{uuid}	// '';
+		parent_id	=> $args->{parent_id}	// 0,
 		created		=> $args->{created}	// '';
 		updated		=> $args->{updated}	// '';
 	};
 	
-	$self	= mergeProperites( $self, $_self );
+	$self	= mergeProperties( $self, $_self );
 	bless	$self, $class;
 	return	$self;
 }
