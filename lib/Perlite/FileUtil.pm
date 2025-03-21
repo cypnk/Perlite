@@ -16,9 +16,19 @@ use Exporter qw( import );
 
 use Perlite::Filter qw( pacify unifySpaces mergeArrayUnique );
 
-our @EXPORT_OK	= 
+our @EXPORT_OK		= 
 qw( timestamp filterPath filterFileName storage dupRename fileLock 
 	fileList fileRead fileWrite searchFiles startFlush );
+
+# Reserved characters for file/folder paths
+my @path_reserved	= qw( : * ? " < > | ; );
+
+# Reserved words for file names (when used alone)
+my @file_reserved	= 
+qw(
+	CON PRN AUX NUL COM1 COM2 COM3 COM4 COM5 COM6 COM7 COM8 COM9 \
+	LPT1 LPT2 LPT3 LPT4 LPT5 LPT6 LPT7 LPT8 LPT9
+);
 
 # Formatted date time helper
 sub timestamp {
@@ -39,15 +49,12 @@ sub timestamp {
 sub filterPath {
 	my ( $path, $ns ) = @_;
 	
-	# Define reserved characters
-	my @reserved	= qw( : * ? " < > | ; );
-	
 	# New filter characters?
 	if ( $ns ) {
-		@reserved = @{ mergeArrayUnique( \@reserved, $ns ) };
+		@path_reserved = @{ mergeArrayUnique( \@path_reserved, $ns ) };
 	}
 	
-	my $chars	= join( '', map { quotemeta( $_ ) } @reserved );
+	my $chars	= join( '', map { quotemeta( $_ ) } @path_reserved );
 	$path		=~ s/[$chars]//g;
 	$path		= unifySpaces( $path );
 	
@@ -63,15 +70,10 @@ sub filterPath {
 # Convert to cross-platform safe filename
 sub filterFileName {
 	my ( $fname, $ns, $fnlimit ) = @_;
-	my @reserved = 
-	qw(
-		CON PRN AUX NUL COM1 COM2 COM3 COM4 COM5 COM6 COM7 COM8 COM9 \
-		LPT1 LPT2 LPT3 LPT4 LPT5 LPT6 LPT7 LPT8 LPT9
-	);
 	
 	# Append to reserved list?
 	if ( $ns ) {
-		@reserved = @{ mergeArrayUnique( \@reserved, $ns ) };
+		@file_reserved = @{ mergeArrayUnique( \@file_reserved, $ns ) };
 	}
 	
 	# Basic filtering
@@ -80,7 +82,7 @@ sub filterFileName {
 	$fname =~ s/^./_/;
 	
 	# Reserved filtering
-	for my $res ( @reserved ) {
+	for my $res ( @file_reserved ) {
 		if ( lc( $fname ) eq lc( $res ) ) {
 			$fname	= "_$fname";
 			last;
