@@ -18,6 +18,9 @@ our @EXPORT_OK	=
 qw( dateRfc textStartsWith utfDecode jsonDecode verifyDate append rewind 
 	mergeProperties hashPassword verifyPassword genSalt hmacDigest );
 
+# Password salt character pool
+our @salt_pool	= ( '.', '/', 0..9, 'a'..'z', 'A'..'Z' );
+
 # Timestamp helper
 sub dateRfc {
 	my ( $stamp ) = @_;
@@ -192,9 +195,7 @@ sub mergeProperties {
 # Generate random salt up to given length
 sub genSalt {
 	my ( $len ) = @_;
-	state @pool	= ( '.', '/', 0..9, 'a'..'z', 'A'..'Z' );
-	
-	return join( '', map( +@pool[rand( 64 )], 1..$len ) );
+	return join( '', map( +@salt_pool[rand( 64 )], 1..$len ) );
 }
 
 # Generate HMAC digest
