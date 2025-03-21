@@ -142,6 +142,8 @@ sub filterAttribute {
 		
 		# Javascript etc...
 		$data	=~ s/^javascript://i;
+		$data	=~ s/(document\.|window\.|eval\(|\(\))//g;
+		$data	=~ s/(\\~\/|\.\.|\\\\|\-\-)//g;
 		
 		return trim( \$data );
 	}
