@@ -26,7 +26,9 @@ sub new {
 		
 		# Dependencies
 		deps		=> 
-		@{ $args->{deps} // [ 'DBI', 'Template', 'URI', 'IO::Socket::SSL' ] },
+		@{ $args->{deps} // [ 
+			'DBI', 'Template', 'URI', 'IO::Socket::SSL', 'Crypt::Random', 'Crypt::Argon2' 
+		] },
 		
 		# TODO: Check database types and load DBD::SQLite or DBD::mysql
 		# Right now, only SQLite is supported
