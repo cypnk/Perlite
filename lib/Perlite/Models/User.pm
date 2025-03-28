@@ -50,31 +50,5 @@ sub getPasswordHash {
 	return $self->{password_hash} // '';
 }
 
-# Hash cleartext password and store
-sub setPassword {
-	my ( $self, $password )	= @_;
-	
-	
-	# Password hashing rounds
-	my $rounds	= 
-	$self->{controller}->{settings}->settings( 'hash_rounds', 'int', 10000 );
-	
-	my $salt	= genSalt( 16 );
-	
-	$self->{password_hash}	= 
-		hashPassword( $password, $salt, $rounds );
-}
-
-# Check against stored hash
-sub passwordAuth {
-	my ( $self, $password )	= @_;
-	my $hash	= $self->getPasswordHash();
-	if ( $hash eq '' ) {
-		return 0;
-	}
-	return verifyPassword( $password, $hash );
-}
-
-
 1;
 
