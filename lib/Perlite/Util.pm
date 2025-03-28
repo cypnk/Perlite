@@ -9,14 +9,14 @@ use Encode qw( is_utf8 encode decode_utf8 );
 use JSON qw( decode_json encode_json );
 use Time::HiRes ();
 use Time::Piece;
-use Digest::SHA qw( sha1_hex sha1_base64 sha256_hex sha384_hex sha512_hex hmac_sha384 );
+use Digest::SHA qw( hmac_sha384 );
 use Exporter qw( import );
 
 use Perlite::Filter qw( trim pacify );
 
 our @EXPORT_OK	= 
 qw( dateRfc textStartsWith utfDecode jsonDecode verifyDate append rewind 
-	mergeProperties hashPassword verifyPassword genSalt hmacDigest );
+	mergeProperties genSalt hmacDigest );
 
 # Password salt character pool
 my @salt_pool	= ( '.', '/', 0..9, 'a'..'z', 'A'..'Z' );
@@ -206,52 +206,6 @@ sub hmacDigest {
 	my $hmac		= hmac_sha384( $data, $key );
 	
 	return unpack( "H*", $hmac );
-}
-
-
-# Generate a hash from given password and optional salt
-sub hashPassword {
-	my ( $pass, $salt, $rounds ) = @_;
-	
-	# Generate new salt, if empty
-	$salt		//= genSalt( 16 );
-	
-	# Crypt-friendly blocks
-	my @chunks	= 
-		split( /(?=(?:.{8})+\z)/s, sha512_hex( $salt . $pass ) );
-	
-	my $out		= '';	# Hash result
-	my $key		= '';	# Digest key per block
-	my $block	= '';	# Hash block
-	
-	for ( @chunks ) {
-		# Generate digest with key from crypt
-		$key	= crypt( $_, substr( sha256_hex( $_ ), 0, -2 ) );
-		$block	= hmacDigest( $key, $_ );
-		
-		# Generate hashed block from digest
-		for ( 1..$rounds ) {
-			$block	= sha384_hex( $block );
-		}
-		
-		# Add block to output
-		$out		.= sha384_hex( $block );
-	}
-	
-	return $salt . ':' . $rounds . ':' . $out;
-}
-
-# Match raw password against stored hash
-sub verifyPassword {
-	my ( $pass, $stored ) = @_;
-	
-	my ( $salt, $rounds, $spass ) = split( /:/, $stored );
-	
-	if ( $stored eq hashPassword( $pass, $salt, $rounds ) ) {
-		return 1;
-	}
-	
-	return 0;
 }
 
 1; 
