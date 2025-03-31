@@ -19,7 +19,7 @@ CREATE TABLE sessions(
 	created DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	expires DATETIME DEFAULT NULL
-);-- --
+) WITHOUT ROWID;-- --
 CREATE UNIQUE INDEX idx_session_id ON sessions( basename, session_id )
 	WHERE session_id IS NOT NULL;-- --
 CREATE INDEX idx_session_site ON sessions( basename );-- --
@@ -28,7 +28,26 @@ CREATE INDEX idx_session_ip ON sessions( session_ip )
 CREATE INDEX idx_session_created ON sessions( created DESC );-- --
 CREATE INDEX idx_session_updated ON sessions( updated DESC );-- --
 CREATE INDEX idx_session_expires ON sessions( expires ASC )
-	WHERE expries IS NOT NULL;-- --
+	WHERE expires IS NOT NULL;-- --
+
+CREATE VIEW ip_view AS
+SELECT 
+	id, basename, session_id, session_ip, created, updated, expires, 
+	CASE 
+		WHEN session_ip LIKE '%.%.%.%' AND 
+			INSTR( session_ip, '.' ) > 0 AND
+			LENGTH( session_ip ) - LENGTH( REPLACE( session_ip, '.', '' ) ) = 3 THEN 'IPv4' 
+		WHEN session_ip LIKE '%:%' THEN 'IPv6'
+		ELSE 'Unknown'
+	END AS ip_type
+FROM sessions;-- --
+
+CREATE VIRTUAL TABLE user_agents 
+	USING fts4( 
+		session_id, 
+		session_ua, 
+		tokenize=unicode61 
+	);-- --
 
 CREATE TRIGGER session_insert AFTER INSERT ON sessions FOR EACH ROW
 WHEN NEW.session_id IS NULL
