@@ -13,8 +13,8 @@ use Crypt::Argon2 qw( argon2id_pass argon2id_verify );
 
 # Default settings
 use constant {
-	ROUNDS		= 3,		# Iterations
-	COST		= '32M',	# Default cost
+	ROUNDS		= 4,		# Iterations
+	COST		= '16M',	# Default cost
 	
 	SALT_SIZE	= 128,		# Salt bisize
 	SALT_STRENGTH	= 1,		# Secure
